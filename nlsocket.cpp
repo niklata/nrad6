@@ -38,12 +38,14 @@ extern boost::random::mt19937 g_random_prng;
 NLSocket::NLSocket(ba::io_service &io_service)
 : socket_(io_service), nlseq_(g_random_prng())
 {
+    initialized_ = false;
     socket_.open(nl_protocol(NETLINK_ROUTE));
     socket_.bind(nl_endpoint<nl_protocol>(RTMGRP_LINK));
     socket_.non_blocking(true);
 
     request_links();
     request_addrs();
+    initialized_ = true;
 
     // Begin the main asynchronous receive loop.
     start_receive();
@@ -73,6 +75,14 @@ void NLSocket::request_addrs()
     boost::system::error_code ec;
     while ((bytes_xferred = socket_.receive(ba::buffer(recv_buffer_), 0, ec)))
         process_receive(bytes_xferred, addr_seq, 0);
+}
+
+void NLSocket::request_addrs(int ifidx)
+{
+    int fd = socket_.native();
+    auto addr_seq = nlseq_++;
+    if (nl_sendgetaddr6(fd, addr_seq, ifidx) < 0)
+        suicide("failed to get initial rtaddr state");
 }
 
 void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
@@ -201,9 +211,11 @@ void NLSocket::process_rt_link_msgs(const struct nlmsghdr *nlh)
         auto elt = interfaces.find(nii.index);
         // Preserve the addresses if we're just modifying fields.
         if (elt != interfaces.end())
-            nii.addrs_v6 = std::move(elt->second.addrs_v6);
+            std::swap(nii.addrs_v6, elt->second.addrs_v6);
         std::cerr << "Adding link: " << nii.name << std::endl;
         interfaces.emplace(std::make_pair(nii.index, nii));
+        if (initialized_)
+            request_addrs(nii.index);
         break;
     }
     case RTM_DELLINK:

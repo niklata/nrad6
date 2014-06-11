@@ -90,11 +90,13 @@ private:
     void process_nlmsg(const struct nlmsghdr *nlh);
     void request_links();
     void request_addrs();
+    void request_addrs(int ifidx);
     boost::asio::basic_raw_socket<nl_protocol> socket_;
     nl_endpoint<nl_protocol> remote_endpoint_;
     std::array<uint8_t, 8192> recv_buffer_;
     std::map<std::string, int> name_to_ifindex_;
     int nlseq_;
+    bool initialized_:1;
 };
 
 #endif
