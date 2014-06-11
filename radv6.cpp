@@ -475,6 +475,8 @@ void RA6Listener::start_periodic_announce()
     timer_.async_wait
         ([this](const boost::system::error_code &ec)
          {
+             if (ec)
+                return;
              std::cerr << "periodic announce" << std::endl;
              try {
                 send_advert(boost::optional<ba::ip::address_v6>());
@@ -654,9 +656,11 @@ void RA6Listener::start_receive()
 
              // Send a router advertisement in reply.
              try {
+                 timer_.cancel();
                  send_advert(boost::optional<ba::ip::address_v6>());
                  // Unicast doesn't work.
                  //send_advert(remote_endpoint_.address().to_v6());
+                 start_periodic_announce();
              } catch (const std::out_of_range &) {}
 
              start_receive();
