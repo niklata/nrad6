@@ -453,7 +453,7 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
     socket_.set_option(mc_routers_group);
 #endif
 
-    send_advert(boost::optional<ba::ip::address_v6>());
+    send_advert();
     start_periodic_announce();
     start_receive();
 }
@@ -479,14 +479,14 @@ void RA6Listener::start_periodic_announce()
                 return;
              std::cerr << "periodic announce" << std::endl;
              try {
-                send_advert(boost::optional<ba::ip::address_v6>());
+                send_advert();
              } catch (const std::out_of_range &) {}
              start_periodic_announce();
          });
 }
 
 // Can throw std::out_of_range
-void RA6Listener::send_advert(boost::optional<ba::ip::address_v6> ucaddr)
+void RA6Listener::send_advert()
 {
     icmp_header icmp_hdr;
     ra6_advert_header ra6adv_hdr;
@@ -539,8 +539,7 @@ void RA6Listener::send_advert(boost::optional<ba::ip::address_v6> ucaddr)
     }
 
     auto llab = lla_.to_bytes();
-    ba::ip::address_v6::bytes_type dstb;
-    dstb = ucaddr ? ucaddr->to_bytes() : mc6_allhosts.to_bytes();
+    auto dstb = mc6_allhosts.to_bytes();
     csum = net_checksum161c_add(csum, net_checksum161c(&llab, sizeof llab));
     csum = net_checksum161c_add(csum, net_checksum161c(&dstb, sizeof dstb));
     csum = net_checksum161c_add(csum, net_checksum161c(&pktl, sizeof pktl));
@@ -553,7 +552,7 @@ void RA6Listener::send_advert(boost::optional<ba::ip::address_v6> ucaddr)
     for (const auto &i: ra6_pfxs)
         os << i;
 
-    ba::ip::icmp::endpoint dst(ucaddr ? *ucaddr : mc6_allhosts, 0);
+    ba::ip::icmp::endpoint dst(mc6_allhosts, 0);
     boost::system::error_code ec;
     socket_.send_to(send_buffer.data(), dst, 0, ec);
 }
@@ -657,9 +656,7 @@ void RA6Listener::start_receive()
              // Send a router advertisement in reply.
              try {
                  timer_.cancel();
-                 send_advert(boost::optional<ba::ip::address_v6>());
-                 // Unicast doesn't work.
-                 //send_advert(remote_endpoint_.address().to_v6());
+                 send_advert();
                  start_periodic_announce();
              } catch (const std::out_of_range &) {}
 

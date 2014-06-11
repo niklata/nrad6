@@ -4,7 +4,6 @@
 #include <string>
 #include <array>
 #include <boost/asio.hpp>
-#include <boost/optional.hpp>
 
 class RA6Listener
 {
@@ -14,7 +13,7 @@ public:
     void set_advi_s_max(unsigned int v);
 private:
     void start_periodic_announce();
-    void send_advert(boost::optional<boost::asio::ip::address_v6> ucaddr);
+    void send_advert();
     void start_receive();
     boost::asio::deadline_timer timer_;
     boost::asio::ip::icmp::resolver resolver_;
