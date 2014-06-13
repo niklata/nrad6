@@ -80,6 +80,12 @@ static gid_t nrad6_gid;
 static boost::random::random_device g_random_secure;
 boost::random::mt19937 g_random_prng(g_random_secure());
 
+extern std::vector<boost::asio::ip::address_v6> dns6_servers;
+extern std::vector<boost::asio::ip::address_v6> ntp6_servers;
+extern std::vector<boost::asio::ip::address_v6> ntp6_multicasts;
+extern std::vector<std::string> ntp6_fqdns;
+extern std::vector<std::string> dns_search;
+
 static void process_signals()
 {
     sigset_t mask;
@@ -183,6 +189,8 @@ static po::variables_map fetch_options(int ac, char *av[])
          "'interface' on which to act as a router (default none)")
         ("user,u", po::value<std::string>(),
          "user name that nrad6 should run as")
+        ("dns-server,d", po::value<std::vector<std::string> >()->composing(),
+         "ipv6 address of a DNS server that hosts will use (default none)")
         ;
 
     po::options_description cmdline_options;
@@ -271,6 +279,11 @@ static void process_options(int ac, char *av[])
         chroot_path = vm["chroot"].as<std::string>();
     if (vm.count("interface"))
         router_interfaces = vm["interface"].as<std::vector<std::string>>();
+    if (vm.count("dns-server")) {
+        auto x = vm["dns-server"].as<std::vector<std::string>>();
+        for (const auto &i: x)
+            dns6_servers.emplace_back(boost::asio::ip::address_v6::from_string(i));
+    }
     if (vm.count("user")) {
         auto t = vm["user"].as<std::string>();
         if (nk_uidgidbyname(t.c_str(), &nrad6_uid, &nrad6_gid))

@@ -43,6 +43,9 @@
 #include "make_unique.hpp"
 #include "radv6.hpp"
 #include "nlsocket.hpp"
+#include "dhcp6.hpp"
+#include "multicast6.hpp"
+#include "netbits.hpp"
 
 extern "C" {
 #include "nk/log.h"
@@ -84,43 +87,6 @@ extern "C" {
  */
 
 namespace ba = boost::asio;
-
-static inline void encode32be(uint32_t v, uint8_t *dest)
-{
-    dest[0] = v >> 24;
-    dest[1] = (v >> 16) & 0xff;
-    dest[2] = (v >> 8) & 0xff;
-    dest[3] = v & 0xff;
-}
-
-static inline void encode16be(uint16_t v, uint8_t *dest)
-{
-    dest[0] = v >> 8;
-    dest[1] = v & 0xff;
-}
-
-static inline uint32_t decode32be(const uint8_t *src)
-{
-    return (static_cast<uint32_t>(src[0]) << 24)
-         | ((static_cast<uint32_t>(src[1]) << 16) & 0xff0000)
-         | ((static_cast<uint32_t>(src[2]) << 8) & 0xff00)
-         | (static_cast<uint32_t>(src[3]) & 0xff);
-}
-
-static inline uint16_t decode16be(const uint8_t *src)
-{
-    return (static_cast<uint16_t>(src[0]) << 8)
-         | (static_cast<uint16_t>(src[1]) & 0xff);
-}
-
-static inline void toggle_bit(bool v, uint8_t *data,
-                              std::size_t arrayidx, uint32_t bitidx)
-{
-    if (v)
-        data[arrayidx] |= bitidx;
-    else
-        data[arrayidx] &= ~bitidx;
-}
 
 class ipv6_header
 {
@@ -406,8 +372,7 @@ extern boost::random::mt19937 g_random_prng;
 
 // Can throw std::out_of_range
 RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
-    : timer_(io_service), resolver_(io_service), socket_(io_service),
-      ifname_(ifname), advi_s_max_(600)
+    : timer_(io_service), socket_(io_service), ifname_(ifname), advi_s_max_(600)
 {
     int ifidx = nl_socket->get_ifindex(ifname_);
     auto &ifinfo = nl_socket->interfaces.at(ifidx);
@@ -421,37 +386,11 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
 
     const ba::ip::icmp::endpoint lla_ep(lla_, 0x20);
     socket_.open(ba::ip::icmp::v6());
+    attach_multicast(socket_.native(), ifname, mc6_allrouters);
     socket_.bind(lla_ep);
-    int fd = socket_.native();
 
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof (struct ifreq));
-    memcpy(ifr.ifr_name, ifname.c_str(), ifname.size());
-    if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof ifr) < 0)
-        suicide("failed to bind socket to device: %s", strerror(errno));
-    if (setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF,
-                   &ifidx, sizeof ifidx) < 0)
-        suicide("failed to set multicast interface for socket: %s", strerror(errno));
-    int loopback(0);
-    if (setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
-                   &loopback, sizeof loopback) < 0)
-        suicide("failed to disable multicast loopback for socket: %s", strerror(errno));
-    int hops(255);
-    if (setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
-                   &hops, sizeof hops) < 0)
-        suicide("failed to disable multicast hops for socket: %s", strerror(errno));
-    auto mrb = mc6_allrouters.to_bytes();
-    struct ipv6_mreq mr;
-    memcpy(&mr.ipv6mr_multiaddr, mrb.data(), sizeof mrb);
-    mr.ipv6mr_interface = ifidx;
-    if (setsockopt(fd, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP,
-                   &mr, sizeof mr) < 0)
-        suicide("failed to join router multicast group for socket: %s", strerror(errno));
-
-#if 0
-    ba::ip::multicast::join_group mc_routers_group(mc6_allrouters);
-    socket_.set_option(mc_routers_group);
-#endif
+    d6_listener_ = nk::make_unique<D6Listener>(io_service, lla_, ifname_,
+                                               ifinfo.macaddr);
 
     send_advert();
     start_periodic_announce();
@@ -470,14 +409,12 @@ void RA6Listener::start_periodic_announce()
     unsigned int advi_s_min = std::max(advi_s_max_ / 3, 3U);
     boost::random::uniform_int_distribution<> dist(advi_s_min, advi_s_max_);
     auto advi_s = dist(g_random_prng);
-    std::cerr << "advi_s = " << advi_s << std::endl;
     timer_.expires_from_now(boost::posix_time::seconds(advi_s));
     timer_.async_wait
         ([this](const boost::system::error_code &ec)
          {
              if (ec)
                 return;
-             std::cerr << "periodic announce" << std::endl;
              try {
                 send_advert();
              } catch (const std::out_of_range &) {}
@@ -504,7 +441,7 @@ void RA6Listener::send_advert()
 
     ra6adv_hdr.hoplimit(0);
     ra6adv_hdr.managed_addresses(false);
-    ra6adv_hdr.other_stateful(false);
+    ra6adv_hdr.other_stateful(true);
     ra6adv_hdr.router_lifetime(3 * advi_s_max_);
     ra6adv_hdr.reachable_time(0);
     ra6adv_hdr.retransmit_timer(0);
@@ -557,7 +494,6 @@ void RA6Listener::send_advert()
     socket_.send_to(send_buffer.data(), dst, 0, ec);
 }
 
-#include <iomanip>
 void RA6Listener::start_receive()
 {
     recv_buffer_.consume(recv_buffer_.size());
@@ -567,12 +503,6 @@ void RA6Listener::start_receive()
                 std::size_t bytes_xferred)
          {
              recv_buffer_.commit(bytes_xferred);
-             std::cerr << "ICMP (len=" << bytes_xferred << ") from " << remote_endpoint_ << std::endl;
-
-             auto xy = ba::buffer_cast<const char *>(recv_buffer_.data());
-             for (size_t i = 0; i < bytes_xferred; ++i) 
-                 std::cout << " " << std::hex << std::setw(2) << static_cast<int>(static_cast<uint8_t>(xy[i]));
-             std::cout << std::dec << std::endl;
 
              // Discard if the ICMP length < 8 octets.
              std::size_t bytes_left = bytes_xferred;
@@ -619,9 +549,8 @@ void RA6Listener::start_receive()
 
              // Only the source link-layer address option is defined.
              while (bytes_left > 1) {
-                 uint8_t opt_type, c;
-                 is >> opt_type >> c;
-                 std::size_t opt_length = 8 * c;
+                 uint8_t opt_type(is.get());
+                 std::size_t opt_length(8 * is.get());
                  // Discard if any included option has a length <= 0.
                  if (opt_length <= 0) {
                      std::cerr << "Solicitation option length == 0" << std::endl;
@@ -631,7 +560,7 @@ void RA6Listener::start_receive()
                  if (opt_type == 1 && opt_length == 8 && !got_macaddr) {
                      got_macaddr = true;
                      for (size_t i = 0; i < sizeof macaddr; ++i)
-                         is >> macaddr[i];
+                         macaddr[i] = is.get();
                  } else {
                      if (opt_type == 1) {
                          if (opt_length != 8)
@@ -640,7 +569,7 @@ void RA6Listener::start_receive()
                              std::cerr << "Solicitation has more than one Source Link-Layer Address option.  Using the first." << std::endl;
                      }
                      for (size_t i = 0; i < opt_length - 2; ++i)
-                         is >> c;
+                         is.get();
                  }
                  bytes_left -= opt_length;
              }
