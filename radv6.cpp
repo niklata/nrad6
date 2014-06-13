@@ -52,6 +52,8 @@ extern "C" {
 #include "nk/net_checksum.h"
 }
 
+extern std::vector<boost::asio::ip::address_v6> dns6_servers;
+
 /* XXX: Configuration options:
  *
  * is_router = false :: Can we forward packets to/from the interface?
@@ -359,6 +361,33 @@ private:
     uint8_t data_[32];
 };
 
+class ra6_rdns_opt
+{
+public:
+    ra6_rdns_opt() {
+        std::fill(data_, data_ + sizeof data_, 0);
+        data_[0] = 25;
+    }
+    uint8_t type() const { return data_[0]; }
+    uint8_t length() const { return data_[1] * 8; }
+    uint32_t lifetime() const { return decode32be(data_ + 4); }
+    void length(uint8_t numdns) { data_[1] = 1 + 2 * numdns; }
+    void lifetime(uint32_t v) { encode32be(v, data_ + 4); }
+    static const std::size_t size = 8;
+    friend std::istream& operator>>(std::istream &is, ra6_rdns_opt &opt)
+    {
+        is.read(reinterpret_cast<char *>(opt.data_), size);
+        return is;
+    }
+    friend std::ostream& operator<<(std::ostream &os,
+                                    const ra6_rdns_opt &header)
+    {
+        return os.write(reinterpret_cast<const char *>(header.data_), size);
+    }
+private:
+    uint8_t data_[8];
+};
+
 /*
  * We will need to minimally support DHCPv6 for providing
  * DNS server information.  We will support RFC6106, too, but
@@ -430,6 +459,7 @@ void RA6Listener::send_advert()
     ra6_source_lla_opt ra6_slla;
     ra6_mtu_opt ra6_mtu;
     std::vector<ra6_prefix_info_opt> ra6_pfxs;
+    ra6_rdns_opt ra6_dns;
     uint16_t csum;
     uint32_t pktl(sizeof icmp_hdr + sizeof ra6adv_hdr + sizeof ra6_slla
                   + sizeof ra6_mtu);
@@ -475,12 +505,31 @@ void RA6Listener::send_advert()
         }
     }
 
+    if (dns6_servers.size()) {
+        ra6_dns.length(dns6_servers.size());
+        ra6_dns.lifetime(advi_s_max_ * 2);
+        csum = net_checksum161c_add(csum, net_checksum161c(&ra6_dns,
+                                                           sizeof ra6_dns));
+        pktl += sizeof ra6_dns + 16 * dns6_servers.size();
+    }
+
+    // XXX: Support the search list, too.
+    // u8 type=31
+    // u8 length=len/8
+    // u16 reserved=0
+    // u32 lifetime=advi_s_max_*2
+    // zero padded dns labels
+
     auto llab = lla_.to_bytes();
     auto dstb = mc6_allhosts.to_bytes();
     csum = net_checksum161c_add(csum, net_checksum161c(&llab, sizeof llab));
     csum = net_checksum161c_add(csum, net_checksum161c(&dstb, sizeof dstb));
     csum = net_checksum161c_add(csum, net_checksum161c(&pktl, sizeof pktl));
     csum = net_checksum161c_add(csum, net_checksum161c(&icmp_nexthdr, 1));
+    for (const auto &i: dns6_servers) {
+        auto db = i.to_bytes();
+        csum = net_checksum161c_add(csum, net_checksum161c(&db, sizeof db));
+    }
     icmp_hdr.checksum(csum);
 
     ba::streambuf send_buffer;
@@ -488,6 +537,14 @@ void RA6Listener::send_advert()
     os << icmp_hdr << ra6adv_hdr << ra6_slla << ra6_mtu;
     for (const auto &i: ra6_pfxs)
         os << i;
+    if (dns6_servers.size()) {
+        os << ra6_dns;
+        for (const auto &i: dns6_servers) {
+            auto b6 = i.to_bytes();
+            for (const auto &j: b6)
+                os << j;
+        }
+    }
 
     ba::ip::icmp::endpoint dst(mc6_allhosts, 0);
     boost::system::error_code ec;
