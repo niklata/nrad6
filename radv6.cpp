@@ -431,7 +431,7 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
 
 void RA6Listener::attach_bpf(int fd)
 {
-    using_bpf_ = attach_bpf_icmp6_ra(fd);
+    using_bpf_ = attach_bpf_icmp6_ra(fd, ifname_.c_str());
 }
 
 void RA6Listener::set_advi_s_max(unsigned int v)

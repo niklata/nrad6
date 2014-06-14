@@ -1,9 +1,12 @@
 #include <stdbool.h>
+#include <string.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <linux/filter.h>
 #include <arpa/inet.h>
 #include <linux/if_ether.h>
+#include "nk/log.h"
 
 /*
 ldb [0]
@@ -43,27 +46,47 @@ static struct sock_filter sf_dhcp6_info[] = {
     { 0x06,  0,  0, 0x00000000 },
 };
 
-bool attach_bpf_icmp6_ra(int fd)
+bool attach_bpf_icmp6_ra(int fd, const char *ifname)
 {
     static const struct sock_fprog sfp_icmpra = {
         .len = sizeof sf_icmpra / sizeof sf_icmpra[0],
         .filter = (struct sock_filter *)sf_icmpra,
     };
-    if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &sfp_icmpra,
-                   sizeof sfp_icmpra))
-        return false;
-    return true;
+    int r = setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &sfp_icmpra,
+                       sizeof sfp_icmpra);
+    if (r >= 0) {
+        int tv = 1;
+        r = setsockopt(fd, SOL_SOCKET, SO_LOCK_FILTER, &tv, sizeof tv);
+        if (r >= 0)
+            return true;
+        else
+            log_warning("%s: Failed to lock BPF for ICMPv6 socket: %s",
+                        ifname, strerror(errno));
+    } else
+        log_warning("%s: Failed to set BPF for ICMPv6 socket: %s",
+                    ifname, strerror(errno));
+    return false;
 }
 
-bool attach_bpf_dhcp6_info(int fd)
+bool attach_bpf_dhcp6_info(int fd, const char *ifname)
 {
     static const struct sock_fprog sfp_dhcp6_info = {
         .len = sizeof sf_dhcp6_info / sizeof sf_dhcp6_info[0],
         .filter = (struct sock_filter *)sf_dhcp6_info,
     };
-    if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &sfp_dhcp6_info,
-                   sizeof sfp_dhcp6_info))
-        return false;
-    return true;
+    int r = setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &sfp_dhcp6_info,
+                       sizeof sfp_dhcp6_info);
+    if (r >= 0) {
+        int tv = 1;
+        r = setsockopt(fd, SOL_SOCKET, SO_LOCK_FILTER, &tv, sizeof tv);
+        if (r >= 0)
+            return true;
+        else
+            log_warning("%s: Failed to lock BPF for DHCPv6 socket: %s",
+                        ifname, strerror(errno));
+    } else
+        log_warning("%s: Failed to set BPF for DHCPv6 socket: %s",
+                    ifname, strerror(errno));
+    return false;
 }
 

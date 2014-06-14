@@ -101,7 +101,7 @@ D6Listener::D6Listener(ba::io_service &io_service,
 
 void D6Listener::attach_bpf(int fd)
 {
-    using_bpf_ = attach_bpf_dhcp6_info(fd);
+    using_bpf_ = attach_bpf_dhcp6_info(fd, ifname_.c_str());
 }
 
 std::vector<boost::asio::ip::address_v6> dns6_servers;
