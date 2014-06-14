@@ -1,0 +1,120 @@
+REQUIREMENTS
+------------
+
+Linux kernel (tested: 3.14)
+C99 C compiler (tested: gcc 4.8.2)
+C++11 compiler (tested: gcc 4.8.2)
+CMake (tested: 2.8.12.2)
+Boost (tested: 1.55.0)
+
+INTRODUCTION
+------------
+
+nrad6 provides router advertisement and DHCPv6 information services that
+are required for stateless autoconfiguration to properly function for
+hosts.  It is intended to be run on a router; IPv6 assumes that the
+default gateway for a network will provide router advertisements, and
+many hosts will need stateless DHCP6 information replies in order to
+determine the DNS and NTP services for a network.
+
+nrad6 has been designed to be secure and function with minimal privilege.
+
+REMARKS ON IPv4 AND IPv6 DIFFERENCES
+------------------------------------
+
+IPv6 is very different than IPv4.
+
+IPv6 supports two different methods (stateful, stateless) of automatic IP
+address allocation.  IPv4 only supports stateful allocation.
+
+Stateful allocation is the familiar DHCPv4 approach, where a centralized
+server has authority for IP address allocation on a set of
+local network segments.  Hosts make queries to this server and are
+provided with IP addresses by the server, which records the mappings
+(state) between hosts (identified by MAC or IAID/DUIDs) and IP addresses.
+
+DHCPv6 can support this model, but it is not the preferred model for IPv6.
+
+IPv6 stateless address allocation eliminates the need for a centralized
+server to keep track of mappings between hosts and IP addresses.  Instead,
+information about the network (prefix, dns/ntp servers) is provided to
+hosts by routers on the local network segment (link).  Hosts use this
+information to calculate a probabalistically unique IP address, which
+is then verified for uniqueness by interrogating the network (using
+IPv6 Neighbor Discovery/Duplicate Address Detection).
+
+DHCPv6 can be used in the stateless model to provide network details
+such as the IP addresses of recursive DNS or NTP servers.  DHCPv6 is
+not strictly required for stateless autoconfiguration to function, but
+many hosts require it to be available in order for them to discover
+DNS or NTP addresses.  Router advertisments can carry this information,
+but the options were defined in 2010 and many hosts do not yet
+understand these options.
+
+nrad6 is designed to support the stateless autoconfiguration model.
+It provides all functionality required stateless autoconfiguration to
+fully function for hosts.  It should be run only on IPv6 routers,
+and only on interfaces on the router for which the router performs
+routing duties.
+
+STANDARD USAGE
+--------------
+
+1) Compile and install nrad6.
+    a) mkdir build
+    b) cd build
+    c) cmake ..
+    d) make
+    e) Install the nrad6 executable in a normal place.
+    f) Set up a user and chroot path (optional, but recommended).
+
+2) Run nrad6.  Use nrad6 --help to see all possible options.
+
+    Examples:
+
+        nrad6 --interface=eth0 --interface=eth1 --user=nrad6 \
+              --dns-server=ffff::1 --dns-server=fffe::1 \
+              --dns-search=example.net --chroot /var/empty
+
+HOST COMPATIBILITY
+------------------
+
+Windows needs DHCPv6 in order to autoconfigure DNS and NTP server
+addresses.  OS X instead uses the RDNS or NTP options in router
+advertisement ICMPs.  nrad6 provides both by default.
+
+PORTABILITY
+-----------
+
+nrad6 could be ported to non-Linux systems, but will require new code
+to replace the netlink mechanism used in Linux.  Some security hardening
+features (seccomp-bpf syscall filtering, SO_LOCK_FILTER) would need to
+be disabled, too.
+
+LICENSE
+-------
+ (c) 2014 Nicholas J. Kain <njkain at gmail dot com>
+ All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+
+ - Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+ - Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+
