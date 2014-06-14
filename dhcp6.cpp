@@ -1,3 +1,4 @@
+#include <iterator>
 #include "multicast6.hpp"
 #include "netbits.hpp"
 #include "dhcp6.hpp"
@@ -110,6 +111,107 @@ std::vector<boost::asio::ip::address_v6> ntp6_multicasts;
 std::vector<std::string> ntp6_fqdns;
 std::vector<std::string> dns_search;
 
+std::vector<uint8_t> dns_search_blob;
+std::vector<uint8_t> ntp6_fqdns_blob;
+
+// Performs DNS label wire encoding cf RFC1035 3.1
+// Allocates memory frequently in order to make correctness easier to
+// verify, but at least in this program, it will called only at
+// reconfiguration.
+static std::vector<uint8_t> dns_label(const std::string &ds)
+{
+    std::vector<uint8_t> ret;
+    std::vector<std::pair<size_t, size_t>> locs;
+
+    if (ds.size() <= 0)
+        return ret;
+
+    // First we build up a list of label start/end offsets.
+    size_t s=0, idx=0;
+    bool in_label(false);
+    for (const auto &i: ds) {
+        if (i == '.') {
+            if (in_label) {
+                locs.emplace_back(std::make_pair(s, idx));
+                in_label = false;
+            } else {
+                throw std::runtime_error("malformed input");
+            }
+        } else {
+            if (!in_label) {
+                s = idx;
+                in_label = true;
+            }
+        }
+        ++idx;
+    }
+    // We don't demand a trailing dot.
+    if (in_label) {
+        locs.emplace_back(std::make_pair(s, idx));
+        in_label = false;
+    }
+
+    // Now we just need to attach the label length octet followed
+    // by the label contents.
+    for (const auto &i: locs) {
+        auto len = i.second - i.first;
+        if (len > 63)
+            throw std::runtime_error("label too long");
+        ret.push_back(len);
+        for (size_t j = i.first; j < i.second; ++j)
+            ret.push_back(ds[j]);
+    }
+    // Terminating zero length label.
+    if (ret.size())
+        ret.push_back(0);
+    if (ret.size() > 255)
+        throw std::runtime_error("domain name too long");
+    return ret;
+}
+
+void create_dns_search_blob()
+{
+    dns_search_blob.clear();
+    for (const auto &dnsname: dns_search) {
+        std::vector<uint8_t> lbl;
+        try {
+            lbl = dns_label(dnsname);
+        } catch (const std::runtime_error &e) {
+            std::cerr << "labelizing " << dnsname << " failed: "
+                      << e.what() << std::endl;
+            continue;
+        }
+        dns_search_blob.insert(dns_search_blob.end(),
+                               std::make_move_iterator(lbl.begin()),
+                               std::make_move_iterator(lbl.end()));
+    }
+}
+
+// Different from the dns search blob because we pre-include the
+// suboption headers.
+void create_ntp6_fqdns_blob()
+{
+    ntp6_fqdns_blob.clear();
+    for (const auto &ntpname: ntp6_fqdns) {
+        std::vector<uint8_t> lbl;
+        try {
+            lbl = dns_label(ntpname);
+        } catch (const std::runtime_error &e) {
+            std::cerr << "labelizing " << ntpname << " failed: "
+                      << e.what() << std::endl;
+            continue;
+        }
+        ntp6_fqdns_blob.push_back(0);
+        ntp6_fqdns_blob.push_back(3);
+        uint16_t lblsize = lbl.size();
+        ntp6_fqdns_blob.push_back(lblsize >> 8);
+        ntp6_fqdns_blob.push_back(lblsize & 0xff);
+        ntp6_fqdns_blob.insert(ntp6_fqdns_blob.end(),
+                               std::make_move_iterator(lbl.begin()),
+                               std::make_move_iterator(lbl.end()));
+    }
+}
+
 void D6Listener::start_receive()
 {
     recv_buffer_.consume(recv_buffer_.size());
@@ -176,7 +278,6 @@ void D6Listener::start_receive()
                          client_duid.push_back(is.get());
                          --bytes_left;
                      }
-                     std::cerr << std::endl;
                  } else if (ot == 6) { // OptionRequest
                      if (l % 2) {
                          std::cerr << "Client-sent option Request has a bad length.  Ignoring." << std::endl;
@@ -267,14 +368,18 @@ void D6Listener::start_receive()
                  }
              }
 
-             if ((!optreq_exists || optreq_dns_search) && dns_search.size()) {
+             if ((!optreq_exists || optreq_dns_search)
+                 && dns_search_blob.size()) {
                  dhcp6_opt send_dns_search;
                  send_dns_search.type(24);
-                 // XXX: Break into labels.
+                 send_dns_search.length(dns_search_blob.size());
+                 os << send_dns_search;
+                 for (const auto &i: dns_search_blob)
+                     os << i;
              }
              auto n6s_size = ntp6_servers.size();
              auto n6m_size = ntp6_multicasts.size();
-             auto n6d_size = ntp6_fqdns.size();
+             auto n6d_size = ntp6_fqdns_blob.size();
              if ((!optreq_exists || optreq_ntp)
                  && (n6s_size || n6m_size || n6d_size)) {
                  uint16_t len(0);
@@ -284,10 +389,8 @@ void D6Listener::start_receive()
                      len += 4 + n6s_size * 16;
                  if (n6m_size)
                      len += 4 + n6m_size * 16;
-                 if (n6d_size) {
-                     len += 4;
-                     // XXX: Break into labels.
-                 }
+                 if (n6d_size)
+                     len += n6d_size;
                  send_ntp.length(len);
                  os << send_ntp;
 
@@ -307,10 +410,8 @@ void D6Listener::start_receive()
                      for (const auto &j: n6b)
                          os << j;
                  }
-                 //for (const auto &i: ntp6_fqdns) {
-                     //uint16_t soc(3);
-                    // XXX: Break into labels.
-                 //}
+                 for (const auto &i: ntp6_fqdns_blob)
+                     os << i;
              }
 
              boost::system::error_code ec;
