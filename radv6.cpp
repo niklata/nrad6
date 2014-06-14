@@ -50,6 +50,7 @@
 extern "C" {
 #include "nk/log.h"
 #include "nk/net_checksum.h"
+extern bool attach_bpf_icmp6_ra(int fd);
 }
 
 extern std::vector<boost::asio::ip::address_v6> dns6_servers;
@@ -401,7 +402,8 @@ extern boost::random::mt19937 g_random_prng;
 
 // Can throw std::out_of_range
 RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
-    : timer_(io_service), socket_(io_service), ifname_(ifname), advi_s_max_(600)
+    : timer_(io_service), socket_(io_service), ifname_(ifname),
+      advi_s_max_(600), using_bpf_(false)
 {
     int ifidx = nl_socket->get_ifindex(ifname_);
     auto &ifinfo = nl_socket->interfaces.at(ifidx);
@@ -416,6 +418,7 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
     const ba::ip::icmp::endpoint lla_ep(lla_, 0x20);
     socket_.open(ba::ip::icmp::v6());
     attach_multicast(socket_.native(), ifname, mc6_allrouters);
+    attach_bpf(socket_.native());
     socket_.bind(lla_ep);
 
     d6_listener_ = nk::make_unique<D6Listener>(io_service, lla_, ifname_,
@@ -424,6 +427,11 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
     send_advert();
     start_periodic_announce();
     start_receive();
+}
+
+void RA6Listener::attach_bpf(int fd)
+{
+    using_bpf_ = attach_bpf_icmp6_ra(fd);
 }
 
 void RA6Listener::set_advi_s_max(unsigned int v)
@@ -584,17 +592,19 @@ void RA6Listener::start_receive()
              }
 #endif
 
-             // Discard if the ICMP code is not 0.
-             if (icmp_hdr.code() != 0) {
-                std::cerr << "ICMP code != 0" << std::endl;
-                start_receive();
-                return;
-             }
+             if (!using_bpf_) {
+                 // Discard if the ICMP code is not 0.
+                 if (icmp_hdr.code() != 0) {
+                    std::cerr << "ICMP code != 0" << std::endl;
+                    start_receive();
+                    return;
+                 }
 
-             if (icmp_hdr.type() != 133) {
-                std::cerr << "ICMP type != 133" << std::endl;
-                start_receive();
-                return;
+                 if (icmp_hdr.type() != 133) {
+                    std::cerr << "ICMP type != 133" << std::endl;
+                    start_receive();
+                    return;
+                 }
              }
 
              ra6_solicit_header ra6_solicit_hdr;
