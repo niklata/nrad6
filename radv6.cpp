@@ -46,11 +46,11 @@
 #include "dhcp6.hpp"
 #include "multicast6.hpp"
 #include "netbits.hpp"
+#include "attach_bpf.h"
 
 extern "C" {
 #include "nk/log.h"
 #include "nk/net_checksum.h"
-extern bool attach_bpf_icmp6_ra(int fd);
 }
 
 extern std::vector<boost::asio::ip::address_v6> dns6_servers;

@@ -1,6 +1,7 @@
 #include "multicast6.hpp"
 #include "netbits.hpp"
 #include "dhcp6.hpp"
+#include "attach_bpf.h"
 
 namespace ba = boost::asio;
 
@@ -86,15 +87,21 @@ D6Listener::D6Listener(ba::io_service &io_service,
                        ba::ip::address_v6 &lla,
                        const std::string &ifname,
                        const char macaddr[6])
-  : socket_(io_service), lla_(lla), ifname_(ifname)
+  : socket_(io_service), lla_(lla), ifname_(ifname), using_bpf_(false)
 {
     memcpy(macaddr_, macaddr, sizeof macaddr_);
     socket_.open(ba::ip::udp::v6());
     auto lla_ep = ba::ip::udp::endpoint(lla_, 547);
     attach_multicast(socket_.native(), ifname, mc6_alldhcp_ras);
+    attach_bpf(socket_.native());
     socket_.bind(lla_ep);
 
     start_receive();
+}
+
+void D6Listener::attach_bpf(int fd)
+{
+    using_bpf_ = attach_bpf_dhcp6_info(fd);
 }
 
 std::vector<boost::asio::ip::address_v6> dns6_servers;
@@ -114,12 +121,14 @@ void D6Listener::start_receive()
              //std::cerr << "bytes_xferred=" << bytes_xferred << std::endl;
              recv_buffer_.commit(bytes_xferred);
 
-             // Discard if the DHCP6 length < the size of a DHCP6 header.
              std::size_t bytes_left = bytes_xferred;
-             if (bytes_xferred < dhcp6_header::size) {
-                std::cerr << "DHCP6 from " << remote_endpoint_ << " is too short: " << bytes_xferred << std::endl;
-                start_receive();
-                return;
+             if (!using_bpf_) {
+                 // Discard if the DHCP6 length < the size of a DHCP6 header.
+                 if (bytes_xferred < dhcp6_header::size) {
+                    std::cerr << "DHCP6 from " << remote_endpoint_ << " is too short: " << bytes_xferred << std::endl;
+                    start_receive();
+                    return;
+                 }
              }
 
              std::istream is(&recv_buffer_);
@@ -127,10 +136,12 @@ void D6Listener::start_receive()
              is >> dhcp6_hdr;
              bytes_left -= dhcp6_header::size;
 
-             if (!dhcp6_hdr.is_information_request()) {
-                 std::cerr << "DHCP6 Message type not InfoReq" << std::endl;
-                 start_receive();
-                 return;
+             if (!using_bpf_) {
+                 if (!dhcp6_hdr.is_information_request()) {
+                     std::cerr << "DHCP6 Message type not InfoReq" << std::endl;
+                     start_receive();
+                     return;
+                 }
              }
 
              std::vector<uint8_t> client_duid;
