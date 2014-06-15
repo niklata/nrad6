@@ -185,6 +185,10 @@ void create_dns_search_blob()
                                std::make_move_iterator(lbl.begin()),
                                std::make_move_iterator(lbl.end()));
     }
+    // See if the search blob size is too large to encode in a RA
+    // dns search option.
+    if (dns_search_blob.size() > 8 * 254)
+        throw std::runtime_error("dns search list is too long");
 }
 
 // Different from the dns search blob because we pre-include the

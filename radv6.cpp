@@ -54,6 +54,7 @@ extern "C" {
 }
 
 extern std::vector<boost::asio::ip::address_v6> dns6_servers;
+extern std::vector<uint8_t> dns_search_blob;
 
 /* XXX: Configuration options:
  *
@@ -389,6 +390,38 @@ private:
     uint8_t data_[8];
 };
 
+class ra6_dns_search_opt
+{
+public:
+    ra6_dns_search_opt() {
+        std::fill(data_, data_ + sizeof data_, 0);
+        data_[0] = 31;
+    }
+    uint8_t type() const { return data_[0]; }
+    uint8_t length() const { return data_[1] * 8; }
+    uint32_t lifetime() const { return decode32be(data_ + 4); }
+    size_t length(size_t size) {
+        data_[1] = 1 + size / 8;
+        size_t slack = size % 8;
+        data_[1] += slack > 0 ? 1 : 0;
+        return 8 * data_[1] - (8 + size);
+    }
+    void lifetime(uint32_t v) { encode32be(v, data_ + 4); }
+    static const std::size_t size = 8;
+    friend std::istream& operator>>(std::istream &is, ra6_dns_search_opt &opt)
+    {
+        is.read(reinterpret_cast<char *>(opt.data_), size);
+        return is;
+    }
+    friend std::ostream& operator<<(std::ostream &os,
+                                    const ra6_dns_search_opt &header)
+    {
+        return os.write(reinterpret_cast<const char *>(header.data_), size);
+    }
+private:
+    uint8_t data_[8];
+};
+
 /*
  * We will need to minimally support DHCPv6 for providing
  * DNS server information.  We will support RFC6106, too, but
@@ -468,6 +501,7 @@ void RA6Listener::send_advert()
     ra6_mtu_opt ra6_mtu;
     std::vector<ra6_prefix_info_opt> ra6_pfxs;
     ra6_rdns_opt ra6_dns;
+    ra6_dns_search_opt ra6_dsrch;
     uint16_t csum;
     uint32_t pktl(sizeof icmp_hdr + sizeof ra6adv_hdr + sizeof ra6_slla
                   + sizeof ra6_mtu);
@@ -521,12 +555,17 @@ void RA6Listener::send_advert()
         pktl += sizeof ra6_dns + 16 * dns6_servers.size();
     }
 
-    // XXX: Support the search list, too.
-    // u8 type=31
-    // u8 length=len/8
-    // u16 reserved=0
-    // u32 lifetime=advi_s_max_*2
-    // zero padded dns labels
+    size_t dns_search_slack = 0;
+    if (dns_search_blob.size()) {
+        dns_search_slack = ra6_dsrch.length(dns_search_blob.size());
+        ra6_dsrch.lifetime(advi_s_max_ * 2);
+        csum = net_checksum161c_add
+            (csum, net_checksum161c(&ra6_dsrch, sizeof ra6_dsrch));
+        csum = net_checksum161c_add
+            (csum, net_checksum161c(dns_search_blob.data(),
+                                    dns_search_blob.size()));
+        pktl += sizeof ra6_dsrch + dns_search_blob.size() + dns_search_slack;
+    }
 
     auto llab = lla_.to_bytes();
     auto dstb = mc6_allhosts.to_bytes();
@@ -552,6 +591,14 @@ void RA6Listener::send_advert()
             for (const auto &j: b6)
                 os << j;
         }
+    }
+    if (dns_search_blob.size()) {
+        os << ra6_dsrch;
+        for (const auto &i: dns_search_blob)
+            os << i;
+        uint8_t zerob(0);
+        for (size_t i = 0; i < dns_search_slack; ++i)
+            os << zerob;
     }
 
     ba::ip::icmp::endpoint dst(mc6_allhosts, 0);
