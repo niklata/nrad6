@@ -27,13 +27,13 @@
  */
 
 #include "nlsocket.hpp"
-#include <boost/random/mersenne_twister.hpp>
+#include "xorshift.hpp"
 extern "C" {
 #include "nl.h"
 #include "nk/log.h"
 }
 namespace ba = boost::asio;
-extern boost::random::mt19937 g_random_prng;
+extern nk::rng::xorshift64m g_random_prng;
 
 NLSocket::NLSocket(ba::io_service &io_service)
 : socket_(io_service), nlseq_(g_random_prng())

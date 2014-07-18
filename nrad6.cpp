@@ -32,6 +32,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <random>
 
 #include <unistd.h>
 #include <stdio.h>
@@ -54,14 +55,11 @@
 
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
-#include <boost/random/random_device.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_int.hpp>
-#include <boost/random/variate_generator.hpp>
 
 #include "make_unique.hpp"
 #include "nlsocket.hpp"
 #include "radv6.hpp"
+#include "xorshift.hpp"
 
 extern "C" {
 #include "nk/log.h"
@@ -77,8 +75,8 @@ static boost::asio::signal_set asio_signal_set(io_service);
 static uid_t nrad6_uid;
 static gid_t nrad6_gid;
 
-static boost::random::random_device g_random_secure;
-boost::random::mt19937 g_random_prng(g_random_secure());
+static std::random_device g_random_secure;
+nk::rng::xorshift64m g_random_prng(0);
 
 extern std::vector<boost::asio::ip::address_v6> dns6_servers;
 extern std::vector<boost::asio::ip::address_v6> ntp6_servers; // XXX
@@ -88,6 +86,15 @@ extern std::vector<std::string> dns_search;
 
 extern void create_dns_search_blob();
 extern void create_ntp6_fqdns_blob();
+
+static void init_prng()
+{
+    std::array<uint32_t, nk::rng::xorshift64m::state_size> seed_data;
+    std::generate_n(seed_data.data(), seed_data.size(),
+                    std::ref(g_random_secure));
+    std::seed_seq seed_seq(std::begin(seed_data), std::end(seed_data));
+    g_random_prng.seed(seed_seq);
+}
 
 static void process_signals()
 {
@@ -303,6 +310,8 @@ static void process_options(int ac, char *av[])
 
     if (!router_interfaces.size())
         suicide("No interfaces have been specified");
+
+    init_prng();
 
     nl_socket = nk::make_unique<NLSocket>(io_service);
 

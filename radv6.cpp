@@ -28,6 +28,7 @@
 
 #include <sstream>
 #include <algorithm>
+#include <random>
 
 #include <unistd.h>
 #include <sys/types.h>
@@ -37,8 +38,6 @@
 #include <sys/socket.h>
 
 #include <boost/lexical_cast.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_int.hpp>
 
 #include "make_unique.hpp"
 #include "radv6.hpp"
@@ -47,6 +46,7 @@
 #include "multicast6.hpp"
 #include "netbits.hpp"
 #include "attach_bpf.h"
+#include "xorshift.hpp"
 
 extern "C" {
 #include "nk/log.h"
@@ -431,7 +431,7 @@ extern std::unique_ptr<NLSocket> nl_socket;
 static auto mc6_allhosts = ba::ip::address_v6::from_string("ff02::1");
 static auto mc6_allrouters = ba::ip::address_v6::from_string("ff02::2");
 static const uint8_t icmp_nexthdr(58); // Assigned value
-extern boost::random::mt19937 g_random_prng;
+extern nk::rng::xorshift64m g_random_prng;
 
 // Can throw std::out_of_range
 RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
@@ -477,7 +477,7 @@ void RA6Listener::set_advi_s_max(unsigned int v)
 void RA6Listener::start_periodic_announce()
 {
     unsigned int advi_s_min = std::max(advi_s_max_ / 3, 3U);
-    boost::random::uniform_int_distribution<> dist(advi_s_min, advi_s_max_);
+    std::uniform_int_distribution<> dist(advi_s_min, advi_s_max_);
     auto advi_s = dist(g_random_prng);
     timer_.expires_from_now(boost::posix_time::seconds(advi_s));
     timer_.async_wait
