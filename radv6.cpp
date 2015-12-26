@@ -40,7 +40,6 @@
 
 #include <boost/lexical_cast.hpp>
 
-#include "make_unique.hpp"
 #include "radv6.hpp"
 #include "nlsocket.hpp"
 #include "dhcp6.hpp"
@@ -455,8 +454,7 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
     attach_bpf(socket_.native());
     socket_.bind(lla_ep);
 
-    d6_listener_ = nk::make_unique<D6Listener>(io_service, lla_, ifname_,
-                                               ifinfo.macaddr);
+    d6_listener_ = std::make_unique<D6Listener>(io_service, lla_, ifname_, ifinfo.macaddr);
 
     send_advert();
     start_periodic_announce();

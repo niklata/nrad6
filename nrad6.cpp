@@ -57,7 +57,6 @@
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 
-#include "make_unique.hpp"
 #include "nlsocket.hpp"
 #include "radv6.hpp"
 #include "xorshift.hpp"
@@ -314,11 +313,11 @@ static void process_options(int ac, char *av[])
 
     init_prng();
 
-    nl_socket = nk::make_unique<NLSocket>(io_service);
+    nl_socket = std::make_unique<NLSocket>(io_service);
 
     for (const auto &i: router_interfaces) {
         try {
-            listeners.emplace_back(nk::make_unique<RA6Listener>(io_service, i));
+            listeners.emplace_back(std::make_unique<RA6Listener>(io_service, i));
         } catch (const std::out_of_range &exn) {}
     }
 
