@@ -28,6 +28,7 @@
 
 #define NRAD6_VERSION "0.5"
 
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>

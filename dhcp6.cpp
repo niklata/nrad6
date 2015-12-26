@@ -1,3 +1,4 @@
+#include <iostream>
 #include <iterator>
 #include "multicast6.hpp"
 #include "netbits.hpp"

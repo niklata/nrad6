@@ -26,6 +26,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <iostream>
 #include "nlsocket.hpp"
 #include "xorshift.hpp"
 extern "C" {
