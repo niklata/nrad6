@@ -37,8 +37,6 @@
 #include <net/if.h>
 #include <sys/socket.h>
 
-#include <boost/lexical_cast.hpp>
-
 #include <nk/format.hpp>
 #include "radv6.hpp"
 #include "nlsocket.hpp"
