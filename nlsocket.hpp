@@ -2,7 +2,7 @@
 #define NRAD6_NLSOCKET_HPP_
 /* nlsocket.hpp - ipv6 netlink ifinfo gathering
  *
- * (c) 2014 Nicholas J. Kain <njkain at gmail dot com>
+ * (c) 2014-2016 Nicholas J. Kain <njkain at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -70,10 +70,12 @@ struct netif_info
     std::vector<netif_addr> addrs_v6;
 };
 
-class NLSocket : boost::noncopyable
+class NLSocket
 {
 public:
     NLSocket(boost::asio::io_service &io_service);
+    NLSocket(const NLSocket &) = delete;
+    NLSocket &operator=(const NLSocket &) = delete;
     int get_ifindex(const std::string &name) const {
         auto elt = name_to_ifindex_.find(name);
         if (elt == name_to_ifindex_.end())
