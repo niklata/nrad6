@@ -1,6 +1,6 @@
 /* nrad6.c - ipv6 router advertisement and dhcp server
  *
- * (c) 2014 Nicholas J. Kain <njkain at gmail dot com>
+ * (c) 2014-2016 Nicholas J. Kain <njkain at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
 
 #define NRAD6_VERSION "0.5"
 
-#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -57,6 +56,7 @@
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
 
+#include <nk/format.hpp>
 #include "nlsocket.hpp"
 #include "radv6.hpp"
 #include "xorshift.hpp"
@@ -217,14 +217,14 @@ static po::variables_map fetch_options(int ac, char *av[])
         po::store(po::command_line_parser(ac, av).
                   options(cmdline_options).positional(p).run(), vm);
     } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
+        fmt::print(stderr, "{}\n", e.what());
     }
     po::notify(vm);
 
     if (config_file.size()) {
         std::ifstream ifs(config_file.c_str());
         if (!ifs) {
-            std::cerr << "Could not open config file: " << config_file << "\n";
+            fmt::print(stderr, "Could not open config file: {}\n", config_file);
             std::exit(EXIT_FAILURE);
         }
         po::store(po::parse_config_file(ifs, cfgfile_options), vm);
@@ -232,34 +232,33 @@ static po::variables_map fetch_options(int ac, char *av[])
     }
 
     if (vm.count("help")) {
-        std::cout << "nrad6 " << NRAD6_VERSION << ", ipv6 router advertisment and dhcp server.\n"
-                  << "Copyright (c) 2014 Nicholas J. Kain\n"
-                  << av[0] << " [options] addresses...\n"
-                  << cmdline_options << std::endl;
+        fmt::print("nrad6 " NRAD6_VERSION ", ipv6 router advertisment and dhcp server.\n"
+                   "Copyright (c) 2014-2016 Nicholas J. Kain\n"
+                   "{} [options] addresses...\n{}\n", av[0], cmdline_options);
         std::exit(EXIT_FAILURE);
     }
     if (vm.count("version")) {
-        std::cout << "nrad6 " << NRAD6_VERSION << ", ipv6 router advertisment and dhcp server.\n" <<
-            "Copyright (c) 2014 Nicholas J. Kain\n"
-            "All rights reserved.\n\n"
-            "Redistribution and use in source and binary forms, with or without\n"
-            "modification, are permitted provided that the following conditions are met:\n\n"
-            "- Redistributions of source code must retain the above copyright notice,\n"
-            "  this list of conditions and the following disclaimer.\n"
-            "- Redistributions in binary form must reproduce the above copyright notice,\n"
-            "  this list of conditions and the following disclaimer in the documentation\n"
-            "  and/or other materials provided with the distribution.\n\n"
-            "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n"
-            "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n"
-            "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE\n"
-            "ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE\n"
-            "LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR\n"
-            "CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF\n"
-            "SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS\n"
-            "INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN\n"
-            "CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)\n"
-            "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE\n"
-            "POSSIBILITY OF SUCH DAMAGE.\n";
+        fmt::print("nrad6 " NRAD6_VERSION ", ipv6 router advertisment and dhcp server.\n"
+                   "Copyright (c) 2014-2016 Nicholas J. Kain\n"
+                   "All rights reserved.\n\n"
+                   "Redistribution and use in source and binary forms, with or without\n"
+                   "modification, are permitted provided that the following conditions are met:\n\n"
+                   "- Redistributions of source code must retain the above copyright notice,\n"
+                   "  this list of conditions and the following disclaimer.\n"
+                   "- Redistributions in binary form must reproduce the above copyright notice,\n"
+                   "  this list of conditions and the following disclaimer in the documentation\n"
+                   "  and/or other materials provided with the distribution.\n\n"
+                   "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n"
+                   "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n"
+                   "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE\n"
+                   "ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE\n"
+                   "LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR\n"
+                   "CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF\n"
+                   "SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS\n"
+                   "INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN\n"
+                   "CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)\n"
+                   "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE\n"
+                   "POSSIBILITY OF SUCH DAMAGE.\n");
         std::exit(EXIT_FAILURE);
     }
     return vm;
@@ -340,19 +339,8 @@ static void process_options(int ac, char *av[])
     //     log_line("seccomp filter cannot be installed");
 }
 
-static void set_iostream_async()
-{
-    // Don't sync with C stdio, and don't sync cin and cout since we're not
-    // interactive and are just streaming messages.
-    std::ios_base::sync_with_stdio(false);
-    std::cin.tie(nullptr);
-    std::cout.tie(nullptr);
-}
-
 int main(int ac, char *av[])
 {
-    set_iostream_async();
-
     gflags_log_name = const_cast<char *>("nrad6");
 
     process_options(ac, av);

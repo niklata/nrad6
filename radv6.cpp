@@ -1,6 +1,6 @@
 /* radv6.cpp - ipv6 router advertisement handling
  *
- * (c) 2014 Nicholas J. Kain <njkain at gmail dot com>
+ * (c) 2014-2016 Nicholas J. Kain <njkain at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <iostream>
 #include <sstream>
 #include <algorithm>
 #include <random>
@@ -40,6 +39,7 @@
 
 #include <boost/lexical_cast.hpp>
 
+#include <nk/format.hpp>
 #include "radv6.hpp"
 #include "nlsocket.hpp"
 #include "dhcp6.hpp"
@@ -443,7 +443,7 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
     for (const auto &i: ifinfo.addrs_v6) {
         if (i.scope == netif_addr::Scope::Link) {
             lla_ = i.address;
-            std::cout << "if<" << ifname << "> LLA: " << lla_ << "\n";
+            fmt::print("if<{}> LLA: {}\n", ifname, lla_);
             break;
         }
     }
@@ -619,7 +619,7 @@ void RA6Listener::start_receive()
              std::size_t bytes_left = bytes_xferred;
              if (bytes_xferred < icmp_header::size
                                  + ra6_solicit_header::size) {
-                std::cerr << "ICMP from " << remote_endpoint_ << " is too short: " << bytes_xferred << std::endl;
+                fmt::print(stderr, "ICMP from {} is too short: {}\n", remote_endpoint_, bytes_xferred);
                 start_receive();
                 return;
              }
@@ -632,7 +632,7 @@ void RA6Listener::start_receive()
              // XXX: Discard if the ip header hop limit field != 255
 #if 0
              if (ipv6_hdr.hop_limit() != 255) {
-                std::cerr << "Hop limit != 255" << std::endl;
+                fmt::print(stderr, "Hop limit != 255\n");
                 start_receive();
                 return;
              }
@@ -641,13 +641,13 @@ void RA6Listener::start_receive()
              if (!using_bpf_) {
                  // Discard if the ICMP code is not 0.
                  if (icmp_hdr.code() != 0) {
-                    std::cerr << "ICMP code != 0" << std::endl;
+                    fmt::print(stderr, "ICMP code != 0\n");
                     start_receive();
                     return;
                  }
 
                  if (icmp_hdr.type() != 133) {
-                    std::cerr << "ICMP type != 133" << std::endl;
+                    fmt::print(stderr, "ICMP type != 133\n");
                     start_receive();
                     return;
                  }
@@ -666,7 +666,7 @@ void RA6Listener::start_receive()
                  std::size_t opt_length(8 * is.get());
                  // Discard if any included option has a length <= 0.
                  if (opt_length <= 0) {
-                     std::cerr << "Solicitation option length == 0" << std::endl;
+                     fmt::print(stderr, "Solicitation option length == 0\n");
                      start_receive();
                      return;
                  }
@@ -677,9 +677,9 @@ void RA6Listener::start_receive()
                  } else {
                      if (opt_type == 1) {
                          if (opt_length != 8)
-                             std::cerr << "Source Link-Layer Address is wrong size for ethernet." << std::endl;
+                             fmt::print(stderr, "Source Link-Layer Address is wrong size for ethernet.\n");
                          else
-                             std::cerr << "Solicitation has more than one Source Link-Layer Address option.  Using the first." << std::endl;
+                             fmt::print(stderr, "Solicitation has more than one Source Link-Layer Address option.  Using the first.\n");
                      }
                      for (size_t i = 0; i < opt_length - 2; ++i)
                          is.get();
@@ -690,7 +690,7 @@ void RA6Listener::start_receive()
              // Discard if the source address is unspecified and
              // there is no source link-layer address option included.
              if (!got_macaddr && remote_endpoint_.address().is_unspecified()) {
-                std::cerr << "Solicitation provides no specified source address or option." << std::endl;
+                fmt::print(stderr, "Solicitation provides no specified source address or option.\n");
                 start_receive();
                 return;
              }

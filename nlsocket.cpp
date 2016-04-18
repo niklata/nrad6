@@ -1,6 +1,6 @@
 /* nlsocket.cpp - ipv6 netlink ifinfo gathering
  *
- * (c) 2014 Nicholas J. Kain <njkain at gmail dot com>
+ * (c) 2014-2016 Nicholas J. Kain <njkain at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <iostream>
+#include <nk/format.hpp>
 #include "nlsocket.hpp"
 #include "xorshift.hpp"
 extern "C" {
@@ -56,7 +56,7 @@ void NLSocket::request_links()
 {
     int fd = socket_.native();
     auto link_seq = nlseq_++;
-    std::cerr << "send link_seq=" << link_seq << std::endl;
+    fmt::print(stderr, "send link_seq={}\n", link_seq);
     if (nl_sendgetlinks(fd, link_seq) < 0)
         suicide("failed to get initial rtlink state");
     std::size_t bytes_xferred;
@@ -69,7 +69,7 @@ void NLSocket::request_addrs()
 {
     int fd = socket_.native();
     auto addr_seq = nlseq_++;
-    std::cerr << "send addr_seq=" << addr_seq << std::endl;
+    fmt::print(stderr, "send addr_seq={}\n", addr_seq);
     if (nl_sendgetaddrs6(fd, addr_seq) < 0)
         suicide("failed to get initial rtaddr state");
     std::size_t bytes_xferred;
@@ -213,7 +213,7 @@ void NLSocket::process_rt_link_msgs(const struct nlmsghdr *nlh)
         // Preserve the addresses if we're just modifying fields.
         if (elt != interfaces.end())
             std::swap(nii.addrs_v6, elt->second.addrs_v6);
-        std::cerr << "Adding link: " << nii.name << std::endl;
+        fmt::print(stderr, "Adding link: {}\n", nii.name);
         interfaces.emplace(std::make_pair(nii.index, nii));
         if (initialized_)
             request_addrs(nii.index);

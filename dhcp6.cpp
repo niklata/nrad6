@@ -1,5 +1,5 @@
-#include <iostream>
 #include <iterator>
+#include <nk/format.hpp>
 #include "multicast6.hpp"
 #include "netbits.hpp"
 #include "dhcp6.hpp"
@@ -178,8 +178,7 @@ void create_dns_search_blob()
         try {
             lbl = dns_label(dnsname);
         } catch (const std::runtime_error &e) {
-            std::cerr << "labelizing " << dnsname << " failed: "
-                      << e.what() << std::endl;
+            fmt::print(stderr, "labelizing {} failed: {}\n", dnsname, e.what());
             continue;
         }
         dns_search_blob.insert(dns_search_blob.end(),
@@ -202,8 +201,7 @@ void create_ntp6_fqdns_blob()
         try {
             lbl = dns_label(ntpname);
         } catch (const std::runtime_error &e) {
-            std::cerr << "labelizing " << ntpname << " failed: "
-                      << e.what() << std::endl;
+            fmt::print(stderr, "labelizing {} failed: {}\n", ntpname, e.what());
             continue;
         }
         ntp6_fqdns_blob.push_back(0);
@@ -225,14 +223,14 @@ void D6Listener::start_receive()
          [this](const boost::system::error_code &error,
                 std::size_t bytes_xferred)
          {
-             //std::cerr << "bytes_xferred=" << bytes_xferred << std::endl;
+             //fmt::print(stderr, "bytes_xferred={}\n", bytes_xferred);
              recv_buffer_.commit(bytes_xferred);
 
              std::size_t bytes_left = bytes_xferred;
              if (!using_bpf_) {
                  // Discard if the DHCP6 length < the size of a DHCP6 header.
                  if (bytes_xferred < dhcp6_header::size) {
-                    std::cerr << "DHCP6 from " << remote_endpoint_ << " is too short: " << bytes_xferred << std::endl;
+                    fmt::print(stderr, "DHCP6 from {} is too short: {}\n", remote_endpoint_, bytes_xferred);
                     start_receive();
                     return;
                  }
@@ -245,7 +243,7 @@ void D6Listener::start_receive()
 
              if (!using_bpf_) {
                  if (!dhcp6_hdr.is_information_request()) {
-                     std::cerr << "DHCP6 Message type not InfoReq" << std::endl;
+                     fmt::print(stderr, "DHCP6 Message type not InfoReq\n");
                      start_receive();
                      return;
                  }
@@ -261,17 +259,16 @@ void D6Listener::start_receive()
              bool optreq_ntp(false);
 
              while (bytes_left >= 4) {
-                 //std::cerr << "bytes_left=" << bytes_left << std::endl;
+                 //fmt::print(stderr, "bytes_left={}\n", bytes_left);
                  dhcp6_opt opt;
                  is >> opt;
-                 //std::cerr << "opt type=" << opt.type() << " length="
-                 //          << opt.length() << std::endl;
+                 //fmt::print(stderr, "opt type={} length={}\n", opt.type(), opt.length());
                  bytes_left -= dhcp6_opt::size;
                  auto l = opt.length();
                  auto ot = opt.type();
 
                  if (l > bytes_left) {
-                     std::cerr << "Option is too long." << std::endl;
+                     fmt::print(stderr, "Option is too long.\n");
                      while (bytes_left--)
                          is.get();
                      continue;
@@ -285,7 +282,7 @@ void D6Listener::start_receive()
                      }
                  } else if (ot == 6) { // OptionRequest
                      if (l % 2) {
-                         std::cerr << "Client-sent option Request has a bad length.  Ignoring." << std::endl;
+                         fmt::print(stderr, "Client-sent option Request has a bad length.  Ignoring.\n");
                          while (l--) {
                              is.get();
                              --bytes_left;
@@ -312,7 +309,7 @@ void D6Listener::start_receive()
                  } else if (ot == 8) { // ElapsedTime
                      // 16-bit hundreths of a second since start of exchange
                      if (l != 2) {
-                         std::cerr << "Client-sent option ElapsedTime has a bad length.  Ignoring." << std::endl;
+                         fmt::print(stderr, "Client-sent option ElapsedTime has a bad length.  Ignoring.\n");
                          while (l--) {
                              is.get();
                              --bytes_left;

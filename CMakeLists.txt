@@ -30,25 +30,21 @@ else()
   return()
 endif()
 
-include_directories(
-  "${PROJECT_SOURCE_DIR}"
-  #  "${PROJECT_SOURCE_DIR}/lua"
-  "${PROJECT_SOURCE_DIR}/ncmlib")
+include_directories("${PROJECT_SOURCE_DIR}"
+                    "${PROJECT_SOURCE_DIR}/ncmlib"
+                    "${PROJECT_SOURCE_DIR}/cppformat")
 add_subdirectory(ncmlib)
+add_subdirectory(cppformat)
 
 find_package( Boost COMPONENTS system program_options )
 link_directories ( ${Boost_LIBRARY_DIRS} )
 include_directories ( ${Boost_INCLUDE_DIRS} )
 find_package(Threads)
 
-#file(GLOB LUA_SRCS "lua/*.c")
-#add_library(lua ${LUA_SRCS})
-
 file(GLOB NRAD6_SRCS_C "*.c")
 file(GLOB NRAD6_SRCS_CPP "*.cpp")
 list(APPEND NRAD6_SRCS ${NRAD6_SRCS_C} ${NRAD6_SRCS_CPP})
 
 add_executable(nrad6 ${NRAD6_SRCS})
-target_link_libraries(nrad6 ${CMAKE_THREAD_LIBS_INIT} ${Boost_LIBRARIES}
-                            ncmlib) # lua)
+target_link_libraries(nrad6 ${CMAKE_THREAD_LIBS_INIT} ${Boost_LIBRARIES} ncmlib cppformat)
 
