@@ -71,6 +71,7 @@ boost::asio::io_service io_service;
 static boost::asio::signal_set asio_signal_set(io_service);
 static uid_t nrad6_uid;
 static gid_t nrad6_gid;
+static bool use_seccomp(false);
 
 std::unique_ptr<NLSocket> nl_socket;
 
@@ -120,29 +121,22 @@ static void process_signals()
         });
 }
 
-#if 0
-// XXX: This is not updated for nrad6.
-static int enforce_seccomp(void)
+static int enforce_seccomp(bool changed_uidgid)
 {
+    if (!use_seccomp)
+        return 0;
     struct sock_filter filter[] = {
         VALIDATE_ARCHITECTURE,
         EXAMINE_SYSCALL,
+        ALLOW_SYSCALL(epoll_wait),
         ALLOW_SYSCALL(sendmsg),
         ALLOW_SYSCALL(recvmsg),
+        ALLOW_SYSCALL(timerfd_settime),
+        ALLOW_SYSCALL(epoll_ctl),
         ALLOW_SYSCALL(read),
         ALLOW_SYSCALL(write),
         ALLOW_SYSCALL(sendto), // used for glibc syslog routines
-        ALLOW_SYSCALL(epoll_wait),
-        ALLOW_SYSCALL(epoll_ctl),
-        ALLOW_SYSCALL(getpeername),
-        ALLOW_SYSCALL(getsockname),
-        ALLOW_SYSCALL(stat),
-        ALLOW_SYSCALL(open),
         ALLOW_SYSCALL(close),
-        ALLOW_SYSCALL(connect),
-        ALLOW_SYSCALL(socket),
-        ALLOW_SYSCALL(accept),
-        ALLOW_SYSCALL(ioctl),
         ALLOW_SYSCALL(rt_sigreturn),
         ALLOW_SYSCALL(rt_sigaction),
 #ifdef __NR_sigreturn
@@ -162,6 +156,8 @@ static int enforce_seccomp(void)
         ALLOW_SYSCALL(mmap),
         ALLOW_SYSCALL(munmap),
 
+        ALLOW_SYSCALL(fstat),
+
         ALLOW_SYSCALL(exit_group),
         ALLOW_SYSCALL(exit),
         KILL_PROCESS,
@@ -170,13 +166,14 @@ static int enforce_seccomp(void)
     memset(&prog, 0, sizeof prog);
     prog.len = (unsigned short)(sizeof filter / sizeof filter[0]);
     prog.filter = filter;
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
+    if (!changed_uidgid && prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
         return -1;
     if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog))
         return -1;
+    fmt::print("seccomp filter installed.  Please disable seccomp if you encounter problems.\n");
+    std::fflush(stdout);
     return 0;
 }
-#endif
 
 static void print_version(void)
 {
@@ -282,7 +279,6 @@ static void process_options(int ac, char *av[])
 
     std::vector<std::string> addrlist;
     std::string pidfile, chroot_path;
-    bool use_seccomp(false);
 
     for (int i = 0; i < parse.optionsCount(); ++i) {
         option::Option &opt = buffer[i];
@@ -336,8 +332,8 @@ static void process_options(int ac, char *av[])
     if (nrad6_uid || nrad6_gid)
         nk_set_uidgid(nrad6_uid, nrad6_gid, NULL, 0);
 
-    // if (enforce_seccomp())
-    //     log_line("seccomp filter cannot be installed");
+    if (enforce_seccomp(nrad6_uid || nrad6_gid))
+        log_line("seccomp filter cannot be installed");
 }
 
 int main(int ac, char *av[])
