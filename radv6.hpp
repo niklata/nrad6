@@ -19,7 +19,6 @@ private:
     void attach_bpf(int fd);
     boost::asio::deadline_timer timer_;
     boost::asio::ip::icmp::socket socket_;
-    boost::asio::ip::address_v6 lla_;
     boost::asio::ip::icmp::endpoint remote_endpoint_;
     std::string ifname_;
     unsigned int advi_s_max_;

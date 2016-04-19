@@ -101,19 +101,22 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
     nia.flags = ifa->ifa_flags;
     nia.if_index = ifa->ifa_index;
     switch (ifa->ifa_scope) {
-    case 0x0: nia.scope = netif_addr::Scope::Global; break;
-    case 0x20: nia.scope = netif_addr::Scope::Link; break;
+    case RT_SCOPE_UNIVERSE: nia.scope = netif_addr::Scope::Global; break;
+    case RT_SCOPE_SITE: nia.scope = netif_addr::Scope::Site; break;
+    case RT_SCOPE_LINK: nia.scope = netif_addr::Scope::Link; break;
+    case RT_SCOPE_HOST: nia.scope = netif_addr::Scope::Host; break;
+    case RT_SCOPE_NOWHERE: nia.scope = netif_addr::Scope::None; break;
     default: log_warning("Unknown scope: %u", ifa->ifa_scope); return;
     }
     if (tb[IFA_ADDRESS]) {
         boost::asio::ip::address_v6::bytes_type bytes;
         memcpy(&bytes, RTA_DATA(tb[IFA_ADDRESS]), sizeof bytes);
-        nia.address = boost::asio::ip::address_v6(bytes, ifa->ifa_scope);
+        nia.address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
     }
     if (tb[IFA_LOCAL]) {
         boost::asio::ip::address_v6::bytes_type bytes;
         memcpy(&bytes, RTA_DATA(tb[IFA_LOCAL]), sizeof bytes);
-        nia.peer_address = boost::asio::ip::address_v6(bytes, ifa->ifa_scope);
+        nia.peer_address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
     }
     if (tb[IFA_LABEL]) {
         auto v = reinterpret_cast<const char *>(RTA_DATA(tb[IFA_LABEL]));
@@ -122,14 +125,12 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
     if (tb[IFA_BROADCAST]) {
         boost::asio::ip::address_v6::bytes_type bytes;
         memcpy(&bytes, RTA_DATA(tb[IFA_BROADCAST]), sizeof bytes);
-        nia.broadcast_address = boost::asio::ip::address_v6(bytes,
-                                                            ifa->ifa_scope);
+        nia.broadcast_address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
     }
     if (tb[IFA_ANYCAST]) {
         boost::asio::ip::address_v6::bytes_type bytes;
         memcpy(&bytes, RTA_DATA(tb[IFA_ANYCAST]), sizeof bytes);
-        nia.anycast_address = boost::asio::ip::address_v6(bytes,
-                                                          ifa->ifa_scope);
+        nia.anycast_address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
     }
 
     switch (nlh->nlmsg_type) {

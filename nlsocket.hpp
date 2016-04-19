@@ -35,10 +35,19 @@
 #include <map>
 #include <boost/asio.hpp>
 #include "asio_netlink.hpp"
+extern "C" {
+#include "nl.h"
+}
 
 struct netif_addr
 {
-    enum class Scope { Global, Link };
+    enum class Scope {
+        Global = RT_SCOPE_UNIVERSE,
+        Site = RT_SCOPE_SITE,
+        Link = RT_SCOPE_LINK,
+        Host = RT_SCOPE_HOST,
+        None = RT_SCOPE_NOWHERE,
+    };
 
     std::string if_name;
     int if_index;

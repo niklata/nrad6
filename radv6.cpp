@@ -438,21 +438,14 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
 {
     int ifidx = nl_socket->get_ifindex(ifname_);
     auto &ifinfo = nl_socket->interfaces.at(ifidx);
-    for (const auto &i: ifinfo.addrs_v6) {
-        if (i.scope == netif_addr::Scope::Link) {
-            lla_ = i.address;
-            fmt::print("if<{}> LLA: {}\n", ifname, lla_);
-            break;
-        }
-    }
 
-    const ba::ip::icmp::endpoint lla_ep(lla_, 0x20);
+    const ba::ip::icmp::endpoint global_ep(ba::ip::address_v6::any(), 0);
     socket_.open(ba::ip::icmp::v6());
     attach_multicast(socket_.native(), ifname, mc6_allrouters);
     attach_bpf(socket_.native());
-    socket_.bind(lla_ep);
+    socket_.bind(global_ep);
 
-    d6_listener_ = std::make_unique<D6Listener>(io_service, lla_, ifname_, ifinfo.macaddr);
+    d6_listener_ = std::make_unique<D6Listener>(io_service, ifname_, ifinfo.macaddr);
 
     send_advert();
     start_periodic_announce();
@@ -564,7 +557,7 @@ void RA6Listener::send_advert()
         pktl += sizeof ra6_dsrch + dns_search_blob.size() + dns_search_slack;
     }
 
-    auto llab = lla_.to_bytes();
+    auto llab = ba::ip::address_v6::any().to_bytes();
     auto dstb = mc6_allhosts.to_bytes();
     csum = net_checksum161c_add(csum, net_checksum161c(&llab, sizeof llab));
     csum = net_checksum161c_add(csum, net_checksum161c(&dstb, sizeof dstb));

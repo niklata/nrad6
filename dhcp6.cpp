@@ -86,14 +86,13 @@ private:
 };
 
 D6Listener::D6Listener(ba::io_service &io_service,
-                       ba::ip::address_v6 &lla,
                        const std::string &ifname,
                        const char macaddr[6])
-  : socket_(io_service), lla_(lla), ifname_(ifname), using_bpf_(false)
+  : socket_(io_service), ifname_(ifname), using_bpf_(false)
 {
     memcpy(macaddr_, macaddr, sizeof macaddr_);
     socket_.open(ba::ip::udp::v6());
-    auto lla_ep = ba::ip::udp::endpoint(lla_, 547);
+    auto lla_ep = ba::ip::udp::endpoint(ba::ip::address_v6::any(), 547);
     attach_multicast(socket_.native(), ifname, mc6_alldhcp_ras);
     attach_bpf(socket_.native());
     socket_.bind(lla_ep);
