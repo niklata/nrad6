@@ -31,7 +31,6 @@
 #include "xorshift.hpp"
 extern "C" {
 #include "nl.h"
-#include "nk/log.h"
 }
 namespace ba = boost::asio;
 extern nk::rng::xorshift64m g_random_prng;
@@ -56,9 +55,10 @@ void NLSocket::request_links()
 {
     int fd = socket_.native();
     auto link_seq = nlseq_++;
-    fmt::print(stderr, "send link_seq={}\n", link_seq);
-    if (nl_sendgetlinks(fd, link_seq) < 0)
-        suicide("failed to get initial rtlink state");
+    if (nl_sendgetlinks(fd, link_seq) < 0) {
+        fmt::print(stderr, "nlsocket: failed to get initial rtlink state\n");
+        std::exit(EXIT_FAILURE);
+    }
     std::size_t bytes_xferred;
     boost::system::error_code ec;
     while ((bytes_xferred = socket_.receive(ba::buffer(recv_buffer_), 0, ec)))
@@ -69,9 +69,10 @@ void NLSocket::request_addrs()
 {
     int fd = socket_.native();
     auto addr_seq = nlseq_++;
-    fmt::print(stderr, "send addr_seq={}\n", addr_seq);
-    if (nl_sendgetaddrs6(fd, addr_seq) < 0)
-        suicide("failed to get initial rtaddr state");
+    if (nl_sendgetaddrs6(fd, addr_seq) < 0) {
+        fmt::print(stderr, "nlsocket: failed to get initial rtaddr state\n");
+        std::exit(EXIT_FAILURE);
+    }
     std::size_t bytes_xferred;
     boost::system::error_code ec;
     while ((bytes_xferred = socket_.receive(ba::buffer(recv_buffer_), 0, ec)))
@@ -82,8 +83,10 @@ void NLSocket::request_addrs(int ifidx)
 {
     int fd = socket_.native();
     auto addr_seq = nlseq_++;
-    if (nl_sendgetaddr6(fd, addr_seq, ifidx) < 0)
-        suicide("failed to get initial rtaddr state");
+    if (nl_sendgetaddr6(fd, addr_seq, ifidx) < 0) {
+        fmt::print(stderr, "nlsocket: failed to get initial rtaddr state\n");
+        std::exit(EXIT_FAILURE);
+    }
 }
 
 void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
@@ -106,7 +109,7 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
     case RT_SCOPE_LINK: nia.scope = netif_addr::Scope::Link; break;
     case RT_SCOPE_HOST: nia.scope = netif_addr::Scope::Host; break;
     case RT_SCOPE_NOWHERE: nia.scope = netif_addr::Scope::None; break;
-    default: log_warning("Unknown scope: %u", ifa->ifa_scope); return;
+    default: fmt::print(stderr, "nlsocket: Unknown scope: {}\n", ifa->ifa_scope); return;
     }
     if (tb[IFA_ADDRESS]) {
         boost::asio::ip::address_v6::bytes_type bytes;
@@ -137,8 +140,8 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
     case RTM_NEWADDR: {
         auto ifelt = interfaces.find(nia.if_index);
         if (ifelt == interfaces.end()) {
-            log_warning("Address for unknown interface %s",
-                        nia.if_name.c_str());
+            fmt::print(stderr, "nlsocket: Address for unknown interface {}\n",
+                       nia.if_name.c_str());
             return;
         }
         const auto iend = ifelt->second.addrs_v6.end();
@@ -165,7 +168,7 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
         return;
     }
     default:
-        log_warning("Unhandled address message type: %u", nlh->nlmsg_type);
+        fmt::print(stderr, "nlsocket: Unhandled address message type: {}\n", nlh->nlmsg_type);
         return;
     }
 }
@@ -214,7 +217,7 @@ void NLSocket::process_rt_link_msgs(const struct nlmsghdr *nlh)
         // Preserve the addresses if we're just modifying fields.
         if (elt != interfaces.end())
             std::swap(nii.addrs_v6, elt->second.addrs_v6);
-        fmt::print(stderr, "Adding link: {}\n", nii.name);
+        fmt::print(stderr, "nlsocket: Adding link info: {}\n", nii.name);
         interfaces.emplace(std::make_pair(nii.index, nii));
         if (initialized_)
             request_addrs(nii.index);
@@ -225,7 +228,7 @@ void NLSocket::process_rt_link_msgs(const struct nlmsghdr *nlh)
         interfaces.erase(nii.index);
         break;
     default:
-        log_warning("Unhandled link message type: %u", nlh->nlmsg_type);
+        fmt::print(stderr, "nlsocket: Unhandled link message type: {}\n", nlh->nlmsg_type);
         break;
     }
 }
@@ -242,7 +245,7 @@ void NLSocket::process_nlmsg(const struct nlmsghdr *nlh)
             process_rt_addr_msgs(nlh);
             break;
         default:
-            log_line("Unhandled RTNETLINK msg type: %u", nlh->nlmsg_type);
+            fmt::print(stderr, "nlsocket: Unhandled RTNETLINK msg type: {}\n", nlh->nlmsg_type);
             break;
     }
 }
@@ -263,17 +266,17 @@ void NLSocket::process_receive(std::size_t bytes_xferred,
         } else {
             switch (nlh->nlmsg_type) {
             case NLMSG_ERROR: {
-                log_line("%s: Received a NLMSG_ERROR: %s",
-                         __func__, strerror(nlmsg_get_error(nlh)));
+                fmt::print(stderr, "nlsocket: Received a NLMSG_ERROR: {}\n",
+                           strerror(nlmsg_get_error(nlh)));
                 auto nle = reinterpret_cast<struct nlmsgerr *>(NLMSG_DATA(nlh));
-                log_line("error=%d len=%u type=%u flags=%u seq=%u pid=%u",
+                fmt::print(stderr, "error={} len={} type={} flags={} seq={} pid={}\n",
                          nle->error, nle->msg.nlmsg_len, nle->msg.nlmsg_type,
                          nle->msg.nlmsg_flags, nle->msg.nlmsg_seq,
                          nle->msg.nlmsg_pid);
                 break;
             }
             case NLMSG_OVERRUN:
-                log_line("%s: Received a NLMSG_OVERRUN.", __func__);
+                fmt::print(stderr, "nlsocket: Received a NLMSG_OVERRUN.\n");
             case NLMSG_NOOP:
             case NLMSG_DONE:
             default:

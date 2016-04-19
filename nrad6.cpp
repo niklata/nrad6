@@ -111,8 +111,10 @@ static void process_signals()
     sigaddset(&mask, SIGTSTP);
     sigaddset(&mask, SIGTTIN);
     sigaddset(&mask, SIGHUP);
-    if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0)
-        suicide("sigprocmask failed");
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0) {
+        fmt::print(stderr, "sigprocmask failed\n");
+        std::exit(EXIT_FAILURE);
+    }
     asio_signal_set.add(SIGINT);
     asio_signal_set.add(SIGTERM);
     asio_signal_set.async_wait(
@@ -303,8 +305,10 @@ static void process_options(int ac, char *av[])
         router_interfaces.emplace_back(parse.nonOption(i));
     }
 
-    if (!router_interfaces.size())
-        suicide("No interfaces have been specified");
+    if (!router_interfaces.size()) {
+        fmt::print(stderr, "No interfaces have been specified\n");
+        std::exit(EXIT_FAILURE);
+    }
 
     if (!dns_search.empty())
         create_dns_search_blob();
@@ -317,9 +321,10 @@ static void process_options(int ac, char *av[])
         } catch (const std::out_of_range &exn) {}
     }
 
-    if (gflags_detach)
-        if (daemon(0,0))
-            suicide("detaching fork failed");
+    if (gflags_detach && daemon(0,0)) {
+        fmt::print(stderr, "detaching fork failed\n");
+        std::exit(EXIT_FAILURE);
+    }
 
     if (pidfile.size() && file_exists(pidfile.c_str(), "w"))
         write_pid(pidfile.c_str());
@@ -332,8 +337,10 @@ static void process_options(int ac, char *av[])
     if (nrad6_uid || nrad6_gid)
         nk_set_uidgid(nrad6_uid, nrad6_gid, NULL, 0);
 
-    if (enforce_seccomp(nrad6_uid || nrad6_gid))
-        log_line("seccomp filter cannot be installed");
+    if (enforce_seccomp(nrad6_uid || nrad6_gid)) {
+        fmt::print(stderr, "seccomp filter cannot be installed\n");
+        std::exit(EXIT_FAILURE);
+    }
 }
 
 int main(int ac, char *av[])

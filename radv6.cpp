@@ -47,7 +47,6 @@
 #include "xorshift.hpp"
 
 extern "C" {
-#include "nk/log.h"
 #include "nk/net_checksum.h"
 }
 
