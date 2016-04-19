@@ -31,7 +31,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <fstream>
 #include <random>
 
 #include <unistd.h>
@@ -51,15 +50,14 @@
 
 #include <signal.h>
 #include <errno.h>
-#include <getopt.h>
 
 #include <boost/asio.hpp>
-#include <boost/program_options.hpp>
 
 #include <nk/format.hpp>
 #include "nlsocket.hpp"
 #include "radv6.hpp"
 #include "xorshift.hpp"
+#include "optionparser.hpp"
 
 extern "C" {
 #include "nk/log.h"
@@ -68,12 +66,17 @@ extern "C" {
 #include "nk/seccomp-bpf.h"
 }
 
-namespace po = boost::program_options;
 
 boost::asio::io_service io_service;
 static boost::asio::signal_set asio_signal_set(io_service);
 static uid_t nrad6_uid;
 static gid_t nrad6_gid;
+
+std::unique_ptr<NLSocket> nl_socket;
+
+// List of interface names for which we will act as a router.
+static std::vector<std::string> router_interfaces;
+static std::vector<std::unique_ptr<RA6Listener>> listeners;
 
 static std::random_device g_random_secure;
 nk::rng::xorshift64m g_random_prng(0);
@@ -175,143 +178,141 @@ static int enforce_seccomp(void)
 }
 #endif
 
-static po::variables_map fetch_options(int ac, char *av[])
+static void print_version(void)
 {
-    std::string config_file;
-
-    po::options_description cli_opts("Command-line-exclusive options");
-    cli_opts.add_options()
-        ("config,c", po::value<std::string>(&config_file),
-         "path to configuration file")
-        ("background", "run as a background daemon")
-        ("verbose,V", "print details of normal operation")
-        ("help,h", "print help message")
-        ("version,v", "print version information")
-        ;
-
-    po::options_description gopts("Options");
-    gopts.add_options()
-        ("pidfile,f", po::value<std::string>(),
-         "path to process id file")
-        ("chroot,C", po::value<std::string>(),
-         "path in which nrad6 should chroot itself")
-        ("interface,i", po::value<std::vector<std::string> >()->composing(),
-         "'interface' on which to act as a router (default none)")
-        ("user,u", po::value<std::string>(),
-         "user name that nrad6 should run as")
-        ("dns-server,d", po::value<std::vector<std::string> >()->composing(),
-         "ipv6 address of a DNS server that hosts will use (default none)")
-        ("dns-search,d", po::value<std::vector<std::string> >()->composing(),
-         "default name postfix for DNS searches (default none)")
-        ;
-
-    po::options_description cmdline_options;
-    cmdline_options.add(cli_opts).add(gopts);
-    po::options_description cfgfile_options;
-    cfgfile_options.add(gopts);
-
-    po::positional_options_description p;
-    p.add("interface", -1);
-    po::variables_map vm;
-    try {
-        po::store(po::command_line_parser(ac, av).
-                  options(cmdline_options).positional(p).run(), vm);
-    } catch (const std::exception& e) {
-        fmt::print(stderr, "{}\n", e.what());
-    }
-    po::notify(vm);
-
-    if (config_file.size()) {
-        std::ifstream ifs(config_file.c_str());
-        if (!ifs) {
-            fmt::print(stderr, "Could not open config file: {}\n", config_file);
-            std::exit(EXIT_FAILURE);
-        }
-        po::store(po::parse_config_file(ifs, cfgfile_options), vm);
-        po::notify(vm);
-    }
-
-    if (vm.count("help")) {
-        fmt::print("nrad6 " NRAD6_VERSION ", ipv6 router advertisment and dhcp server.\n"
-                   "Copyright (c) 2014-2016 Nicholas J. Kain\n"
-                   "{} [options] addresses...\n{}\n", av[0], cmdline_options);
-        std::exit(EXIT_FAILURE);
-    }
-    if (vm.count("version")) {
-        fmt::print("nrad6 " NRAD6_VERSION ", ipv6 router advertisment and dhcp server.\n"
-                   "Copyright (c) 2014-2016 Nicholas J. Kain\n"
-                   "All rights reserved.\n\n"
-                   "Redistribution and use in source and binary forms, with or without\n"
-                   "modification, are permitted provided that the following conditions are met:\n\n"
-                   "- Redistributions of source code must retain the above copyright notice,\n"
-                   "  this list of conditions and the following disclaimer.\n"
-                   "- Redistributions in binary form must reproduce the above copyright notice,\n"
-                   "  this list of conditions and the following disclaimer in the documentation\n"
-                   "  and/or other materials provided with the distribution.\n\n"
-                   "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n"
-                   "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n"
-                   "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE\n"
-                   "ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE\n"
-                   "LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR\n"
-                   "CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF\n"
-                   "SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS\n"
-                   "INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN\n"
-                   "CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)\n"
-                   "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE\n"
-                   "POSSIBILITY OF SUCH DAMAGE.\n");
-        std::exit(EXIT_FAILURE);
-    }
-    return vm;
+    fmt::print("nrad6 " NRAD6_VERSION ", ipv6 router advertisment and dhcp server.\n"
+               "Copyright (c) 2014-2016 Nicholas J. Kain\n"
+               "All rights reserved.\n\n"
+               "Redistribution and use in source and binary forms, with or without\n"
+               "modification, are permitted provided that the following conditions are met:\n\n"
+               "- Redistributions of source code must retain the above copyright notice,\n"
+               "  this list of conditions and the following disclaimer.\n"
+               "- Redistributions in binary form must reproduce the above copyright notice,\n"
+               "  this list of conditions and the following disclaimer in the documentation\n"
+               "  and/or other materials provided with the distribution.\n\n"
+               "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n"
+               "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n"
+               "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE\n"
+               "ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE\n"
+               "LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR\n"
+               "CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF\n"
+               "SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS\n"
+               "INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN\n"
+               "CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)\n"
+               "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE\n"
+               "POSSIBILITY OF SUCH DAMAGE.\n");
 }
 
-std::unique_ptr<NLSocket> nl_socket;
-
-// List of interface names for which we will act as a router.
-static std::vector<std::string> router_interfaces;
-static std::vector<std::unique_ptr<RA6Listener>> listeners;
-
+struct Arg : public option::Arg
+{
+    static void print_error(const char *head, const option::Option &opt, const char *tail)
+    {
+        fmt::fprintf(stderr, "%s%.*s%s", head, opt.namelen, opt.name, tail);
+    }
+    static option::ArgStatus Unknown(const option::Option &opt, bool msg)
+    {
+        if (msg) print_error("Unknown option '", opt, "'\n");
+        return option::ARG_ILLEGAL;
+    }
+    static option::ArgStatus String(const option::Option &opt, bool msg)
+    {
+        if (opt.arg && opt.arg[0])
+            return option::ARG_OK;
+        if (msg) print_error("Option '", opt, "' requires an argument\n");
+        return option::ARG_ILLEGAL;
+    }
+    static option::ArgStatus Integer(const option::Option &opt, bool msg)
+    {
+        char *endptr{nullptr};
+        if (opt.arg && strtol(opt.arg, &endptr, 10)){}
+        if (endptr != opt.arg && !*endptr)
+            return option::ARG_OK;
+        if (msg) print_error("Option '", opt, "' requires an integer argument\n");
+        return option::ARG_ILLEGAL;
+    }
+};
+enum OpIdx {
+    OPT_UNKNOWN, OPT_HELP, OPT_VERSION, OPT_BACKGROUND, OPT_PIDFILE,
+    OPT_CHROOT, OPT_USER, OPT_DNSSERVER, OPT_DNSSEARCH, OPT_SECCOMP,
+    OPT_QUIET
+};
+static const option::Descriptor usage[] = {
+    { OPT_UNKNOWN,    0,  "",           "", Arg::Unknown,
+        "nrad6 " NRAD6_VERSION ", ipv6 router advertisment and dhcp server.\n"
+        "Copyright (c) 2014-2016 Nicholas J. Kain\n"
+        "nrad6 [options] [interface]...\n\nOptions:" },
+    { OPT_HELP,       0, "h",            "help",    Arg::None, "\t-h, \t--help  \tPrint usage and exit." },
+    { OPT_VERSION,    0, "v",         "version",    Arg::None, "\t-v, \t--version  \tPrint version and exit." },
+    { OPT_BACKGROUND, 0, "b",      "background",    Arg::None, "\t-b, \t--background  \tRun as a background daemon." },
+    { OPT_PIDFILE,    0, "f",         "pidfile",  Arg::String, "\t-f, \t--pidfile  \tPath to process id file." },
+    { OPT_CHROOT,     0, "C",          "chroot",  Arg::String, "\t-C, \t--chroot  \tPath in which nident should chroot itself." },
+    { OPT_USER,       0, "u",            "user",  Arg::String, "\t-u, \t--user  \tUser name that nrad6 should run as." },
+    { OPT_DNSSERVER,  0, "d",      "dns-server",  Arg::String, "\t-d, \t--dns-server  \tIPV6 address of a DNS server that hosts will use (default none)." },
+    { OPT_DNSSEARCH,  0, "s",      "dns-search",  Arg::String, "\t-S, \t--dns-search  \tDefault name postfix for DNS searches (default none)." },
+    { OPT_SECCOMP,    0, "S", "seccomp-enforce",    Arg::None, "\t    \t--seccomp-enforce  \tEnforce seccomp syscall restrictions." },
+    { OPT_QUIET,      0, "q",           "quiet",    Arg::None, "\t-q, \t--quiet  \tDon't log to std(out|err) or syslog." },
+    {0,0,0,0,0,0}
+};
 static void process_options(int ac, char *av[])
 {
+    ac-=ac>0; av+=ac>0;
+    option::Stats stats(usage, ac, av);
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvla"
+    option::Option options[stats.options_max], buffer[stats.buffer_max];
+#pragma GCC diagnostic pop
+    option::Parser parse(usage, ac, av, options, buffer);
+#else
+    auto options = std::make_unique<option::Option[]>(stats.options_max);
+    auto buffer = std::make_unique<option::Option[]>(stats.buffer_max);
+    option::Parser parse(usage, ac, av, options.get(), buffer.get());
+#endif
+    if (parse.error())
+        std::exit(EXIT_FAILURE);
+    if (options[OPT_HELP]) {
+        int col = getenv("COLUMNS") ? atoi(getenv("COLUMNS")) : 80;
+        option::printUsage(fwrite, stdout, usage, col);
+        std::exit(EXIT_FAILURE);
+    }
+    if (options[OPT_VERSION]) {
+        print_version();
+        std::exit(EXIT_FAILURE);
+    }
+
+    std::vector<std::string> addrlist;
     std::string pidfile, chroot_path;
+    bool use_seccomp(false);
 
-    auto vm(fetch_options(ac, av));
-
-    // XXX: Update
-    //auto hs_secs = vm["handshake-gc-interval"].as<std::size_t>();
-    //auto bindlisten_secs = vm["bindlisten-gc-interval"].as<std::size_t>();
-
-    if (vm.count("background"))
-        gflags_detach = 1;
-    //if (vm.count("verbose"))
-        //g_verbose_logs = true;
-    if (vm.count("pidfile"))
-        pidfile = vm["pidfile"].as<std::string>();
-    if (vm.count("chroot"))
-        chroot_path = vm["chroot"].as<std::string>();
-    if (vm.count("interface"))
-        router_interfaces = vm["interface"].as<std::vector<std::string>>();
-    if (vm.count("dns-server")) {
-        auto x = vm["dns-server"].as<std::vector<std::string>>();
-        for (const auto &i: x)
-            dns6_servers.emplace_back(boost::asio::ip::address_v6::from_string(i));
+    for (int i = 0; i < parse.optionsCount(); ++i) {
+        option::Option &opt = buffer[i];
+        switch (opt.index()) {
+            case OPT_BACKGROUND: gflags_detach = 1; break;
+            case OPT_PIDFILE: pidfile = std::string(opt.arg); break;
+            case OPT_CHROOT: chroot_path = std::string(opt.arg); break;
+            case OPT_USER: {
+                if (nk_uidgidbyname(opt.arg, &nrad6_uid, &nrad6_gid)) {
+                    fmt::print(stderr, "invalid user '{}' specified\n", opt.arg);
+                    std::exit(EXIT_FAILURE);
+                }
+                break;
+            }
+            case OPT_DNSSERVER: dns6_servers.emplace_back(boost::asio::ip::address_v6::from_string(opt.arg)); break;
+            case OPT_DNSSEARCH: dns_search.emplace_back(opt.arg); break;
+            case OPT_SECCOMP: use_seccomp = true; break;
+            case OPT_QUIET: gflags_quiet = 1; break;
+        }
     }
-    if (vm.count("dns-search")) {
-        auto x = vm["dns-search"].as<std::vector<std::string>>();
-        for (const auto &i: x)
-            dns_search.emplace_back(i);
-        create_dns_search_blob();
-    }
-    if (vm.count("user")) {
-        auto t = vm["user"].as<std::string>();
-        if (nk_uidgidbyname(t.c_str(), &nrad6_uid, &nrad6_gid))
-            suicide("invalid user '%s' specified", t.c_str());
+    for (int i = 0; i < parse.nonOptionsCount(); ++i) {
+        router_interfaces.emplace_back(parse.nonOption(i));
     }
 
     if (!router_interfaces.size())
         suicide("No interfaces have been specified");
 
+    if (!dns_search.empty())
+        create_dns_search_blob();
     init_prng();
-
     nl_socket = std::make_unique<NLSocket>(io_service);
 
     for (const auto &i: router_interfaces) {
