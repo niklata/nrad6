@@ -9,19 +9,40 @@ namespace ba = boost::asio;
 
 static auto mc6_alldhcp_ras = ba::ip::address_v6::from_string("ff02::1:2");
 
+enum class dhcp6_msgtype {
+    unknown = 0,
+    solicit = 1,
+    advertise = 2,
+    request = 3,
+    confirm = 4,
+    renew = 5,
+    rebind = 6,
+    reply = 7,
+    release = 8,
+    decline = 9,
+    reconfigure = 10,
+    information_request = 11,
+    relay_forward = 12,
+    relay_reply = 13,
+};
+
 class dhcp6_header
 {
 public:
     dhcp6_header() { std::fill(data_, data_ + sizeof data_, 0); }
-    uint8_t msg_type() const { return data_[0]; }
     uint32_t xid() const { return data_[1] << 16 | data_[2] << 8 | data_[3]; }
-    void msg_type(uint8_t v) { data_[0] = v; }
     void xid(uint32_t v) {
         data_[1] = v >> 16 & 0xff;
         data_[2] = v >> 8 & 0xff;
         data_[3] = v & 0xff;
     }
-    bool is_information_request() const { return data_[0] == 11; }
+    dhcp6_msgtype msg_type() const {
+        const auto dt = data_[0];
+        if (dt >= 1 && dt <= 13)
+            return static_cast<dhcp6_msgtype>(dt);
+        return dhcp6_msgtype::unknown;
+    };
+    void msg_type(dhcp6_msgtype v) { data_[0] = static_cast<uint8_t>(v); }
     static const std::size_t size = 4;
     friend std::istream& operator>>(std::istream &is, dhcp6_header &header)
     {
@@ -222,7 +243,7 @@ void D6Listener::start_receive()
          [this](const boost::system::error_code &error,
                 std::size_t bytes_xferred)
          {
-             //fmt::print(stderr, "bytes_xferred={}\n", bytes_xferred);
+             fmt::print(stderr, "bytes_xferred={}\n", bytes_xferred);
              recv_buffer_.commit(bytes_xferred);
 
              std::size_t bytes_left = bytes_xferred;
@@ -240,8 +261,10 @@ void D6Listener::start_receive()
              is >> dhcp6_hdr;
              bytes_left -= dhcp6_header::size;
 
+             fmt::print(stderr, "dhcp message type: {}\n", static_cast<uint8_t>(dhcp6_hdr.msg_type()));
+
              if (!using_bpf_) {
-                 if (!dhcp6_hdr.is_information_request()) {
+                 if (dhcp6_hdr.msg_type() != dhcp6_msgtype::information_request) {
                      fmt::print(stderr, "DHCP6 Message type not InfoReq\n");
                      start_receive();
                      return;
@@ -329,7 +352,7 @@ void D6Listener::start_receive()
              }
 
              dhcp6_header send_d6hdr;
-             send_d6hdr.msg_type(7); // REPLY
+             send_d6hdr.msg_type(dhcp6_msgtype::reply);
              send_d6hdr.xid(dhcp6_hdr.xid());
 
              ba::streambuf send_buffer;
