@@ -32,7 +32,6 @@
 #include <string>
 #include <vector>
 #include <random>
-
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,28 +43,22 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <ctype.h>
-
 #include <pwd.h>
 #include <grp.h>
-
 #include <signal.h>
 #include <errno.h>
-
 #include <boost/asio.hpp>
-
 #include <nk/format.hpp>
-#include "nlsocket.hpp"
-#include "radv6.hpp"
-#include "xorshift.hpp"
-#include "optionarg.hpp"
-
+#include <nk/optionarg.hpp>
 extern "C" {
 #include "nk/log.h"
 #include "nk/privilege.h"
 #include "nk/pidfile.h"
 #include "nk/seccomp-bpf.h"
 }
-
+#include "nlsocket.hpp"
+#include "radv6.hpp"
+#include "xorshift.hpp"
 
 boost::asio::io_service io_service;
 static boost::asio::signal_set asio_signal_set(io_service);
