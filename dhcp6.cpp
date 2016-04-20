@@ -24,7 +24,7 @@ D6Listener::D6Listener(ba::io_service &io_service,
 
 void D6Listener::attach_bpf(int fd)
 {
-    using_bpf_ = attach_bpf_dhcp6_info(fd, ifname_.c_str());
+    //using_bpf_ = attach_bpf_dhcp6_info(fd, ifname_.c_str());
 }
 
 std::vector<boost::asio::ip::address_v6> dns6_servers;
@@ -35,6 +35,58 @@ std::vector<std::string> dns_search;
 
 std::vector<uint8_t> dns_search_blob;
 std::vector<uint8_t> ntp6_fqdns_blob;
+
+static const char * dhcp6_msgtype_to_string(dhcp6_msgtype m)
+{
+    switch (m) {
+    default: return "unknown";
+    case dhcp6_msgtype::solicit: return "solicit";
+    case dhcp6_msgtype::advertise: return "advertise";
+    case dhcp6_msgtype::request: return "request";
+    case dhcp6_msgtype::confirm: return "confirm";
+    case dhcp6_msgtype::renew: return "renew";
+    case dhcp6_msgtype::rebind: return "rebind";
+    case dhcp6_msgtype::reply: return "reply";
+    case dhcp6_msgtype::release: return "release";
+    case dhcp6_msgtype::decline: return "decline";
+    case dhcp6_msgtype::reconfigure: return "reconfigure";
+    case dhcp6_msgtype::information_request: return "information_request";
+    case dhcp6_msgtype::relay_forward: return "relay_forward";
+    case dhcp6_msgtype::relay_reply: return "relay_reply";
+    }
+}
+
+static const char * dhcp6_opt_to_string(uint16_t opttype)
+{
+    switch (opttype) {
+    case  1: return "Client Identifier";
+    case  2: return "Server Identifier";
+    case  3: return "Identity Association (IA) Non-Temporary";
+    case  4: return "Identity Association (IA) Temporary";
+    case  5: return "Identity Association (IA) Address";
+    case  6: return "Option Request";
+    case  7: return "Preference";
+    case  8: return "Elapsed Time";
+    case  9: return "Relay Message";
+    case 11: return "Authentication";
+    case 12: return "Server Unicast";
+    case 13: return "Status Code";
+    case 14: return "Rapid Commit";
+    case 15: return "User Class";
+    case 16: return "Vendor Class";
+    case 17: return "Vendor Options";
+    case 18: return "Interface ID";
+    case 19: return "Reconfigure Message";
+    case 20: return "Reconfigure Accept";
+    case 23: return "DNS Recursive Servers"; // RFC3646
+    case 24: return "DNS Domain Search List"; // RFC3646
+    case 39: return "Client FQDN"; // RFC4704
+    case 56: return "NTP Server"; // RFC5908
+    default:
+             fmt::print("Unknown DHCP Option type: {}\n", opttype);
+             return "Unknown";
+    }
+}
 
 // Performs DNS label wire encoding cf RFC1035 3.1
 // Allocates memory frequently in order to make correctness easier to
@@ -144,13 +196,8 @@ void D6Listener::write_response_header(const d6msg_state &d6s, std::ostream &os,
     send_d6hdr.xid(d6s.header.xid());
     os << send_d6hdr;
 
-    dhcp6_opt send_serverid;
-    send_serverid.type(2);
-    send_serverid.length(10);
+    dhcp6_opt_serverid send_serverid(macaddr_);
     os << send_serverid;
-    dhcp6_hwaddr_duid send_hwduid;
-    send_hwduid.macaddr(macaddr_);
-    os << send_hwduid;
 
     if (d6s.client_duid.size()) {
         dhcp6_opt send_clientid;
@@ -162,23 +209,11 @@ void D6Listener::write_response_header(const d6msg_state &d6s, std::ostream &os,
     }
 }
 
-void D6Listener::handle_advertise_request(const d6msg_state &d6s,
-                                          ba::streambuf &send_buffer)
+// If opt_req.size() == 0 then send DnsServers, DomainList,
+// and NtpServer.  Otherwise, for each of these types,
+// see if it is in the opt_req before adding it to the reply.
+void D6Listener::attach_dns_ntp_info(const d6msg_state &d6s, std::ostream &os)
 {
-    std::ostream os(&send_buffer);
-    write_response_header(d6s, os, dhcp6_msgtype::advertise);
-}
-
-void D6Listener::handle_information_request(const d6msg_state &d6s,
-                                            ba::streambuf &send_buffer)
-{
-    std::ostream os(&send_buffer);
-    write_response_header(d6s, os, dhcp6_msgtype::reply);
-
-    // If opt_req.size() == 0 then send DnsServers, DomainList,
-    // and NtpServer.  Otherwise, for each of these types,
-    // see if it is in the opt_req before adding it to the reply.
-
     if ((!d6s.optreq_exists || d6s.optreq_dns) && dns6_servers.size()) {
         dhcp6_opt send_dns;
         send_dns.type(23);
@@ -238,22 +273,103 @@ void D6Listener::handle_information_request(const d6msg_state &d6s,
     }
 }
 
+void D6Listener::handle_advertise_msg(const d6msg_state &d6s, ba::streambuf &send_buffer)
+{
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::advertise);
+
+    // XXX: Look through IAs and send IA with assigned address as an option.
+    attach_dns_ntp_info(d6s, os);
+
+#if 0
+    dhcp6_opt rapid_commit;
+    rapid_commit.type(14);
+    rapid_commit.length(0);
+    os << rapid_commit;
+#endif
+}
+
+void D6Listener::handle_request_msg(const d6msg_state &d6s, ba::streambuf &send_buffer)
+{
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::reply);
+
+    // XXX: Look through IAs and send IA with assigned address as an option.
+    attach_dns_ntp_info(d6s, os);
+}
+
+void D6Listener::handle_confirm_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer)
+{
+
+}
+
+void D6Listener::handle_renew_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer)
+{
+
+}
+
+void D6Listener::handle_rebind_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer)
+{
+
+}
+
+void D6Listener::handle_information_msg(const d6msg_state &d6s, ba::streambuf &send_buffer)
+{
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::reply);
+    attach_dns_ntp_info(d6s, os);
+    fmt::print("Sending Information Message in response.\n");
+}
+
+#define BYTES_LEFT_DEC(BLD_VAL) bytes_left_dec(d6s, bytes_left, (BLD_VAL))
+
+#define CONSUME_OPT(CO_MSG) \
+         fmt::print(stderr, (CO_MSG)); \
+         while (l--) { \
+             is.get(); \
+             BYTES_LEFT_DEC(1); \
+         } \
+         continue
+
+size_t D6Listener::bytes_left_dec(d6msg_state &d6s, std::size_t &bytes_left, size_t v) {
+    if (bytes_left < v)
+        throw std::out_of_range("bytes_left would underflow\n");
+    bytes_left -= v;
+    size_t option_depth{0};
+    for (auto &i: d6s.prev_opt) {
+        ++option_depth;
+        if (i.second < v)
+            throw std::out_of_range(fmt::format("{} depth would underflow\n", option_depth));
+        i.second -= v;
+    }
+    while (!d6s.prev_opt.empty() && d6s.prev_opt.back().second == 0)
+        d6s.prev_opt.pop_back();
+    option_depth = 0;
+    for (const auto &i: d6s.prev_opt) {
+        ++option_depth;
+        // Tricky: Guard against client sending invalid suboption lengths.
+        if (i.second <= 0)
+            throw std::out_of_range(fmt::format("{} depth ran out of length but has suboption size left\n"));
+    }
+    return bytes_left;
+}
+
 void D6Listener::start_receive()
 {
     recv_buffer_.consume(recv_buffer_.size());
     socket_.async_receive_from
-        (recv_buffer_.prepare(8192), remote_endpoint_,
-         [this](const boost::system::error_code &error,
-                std::size_t bytes_xferred)
+        (recv_buffer_.prepare(8192), sender_endpoint_,
+         [this](const boost::system::error_code &error, std::size_t bytes_xferred)
          {
-             fmt::print(stderr, "bytes_xferred={}\n", bytes_xferred);
+             fmt::print(stderr, "\nbytes_xferred={}\n", bytes_xferred);
              recv_buffer_.commit(bytes_xferred);
 
              std::size_t bytes_left = bytes_xferred;
              if (!using_bpf_) {
                  // Discard if the DHCP6 length < the size of a DHCP6 header.
                  if (bytes_xferred < dhcp6_header::size) {
-                    fmt::print(stderr, "DHCP6 from {} is too short: {}\n", remote_endpoint_, bytes_xferred);
+                    fmt::print(stderr, "DHCP6 from {} is too short: {}\n",
+                               sender_endpoint_, bytes_xferred);
                     start_receive();
                     return;
                  }
@@ -262,31 +378,27 @@ void D6Listener::start_receive()
              std::istream is(&recv_buffer_);
              d6msg_state d6s;
              is >> d6s.header;
-             bytes_left -= dhcp6_header::size;
+             BYTES_LEFT_DEC(dhcp6_header::size);
 
-             fmt::print(stderr, "dhcp message type: {}\n", static_cast<uint8_t>(d6s.header.msg_type()));
-
-             if (!using_bpf_) {
-                 if (d6s.header.msg_type() != dhcp6_msgtype::information_request) {
-                     fmt::print(stderr, "DHCP6 Message type not InfoReq\n");
-                     start_receive();
-                     return;
-                 }
-             }
+             fmt::print(stderr, "DHCP Message: {}\n",
+                        dhcp6_msgtype_to_string(d6s.header.msg_type()));
 
              while (bytes_left >= 4) {
-                 //fmt::print(stderr, "bytes_left={}\n", bytes_left);
+                 fmt::print(stderr, "bytes_left={}\n", bytes_left);
                  dhcp6_opt opt;
                  is >> opt;
-                 //fmt::print(stderr, "opt type={} length={}\n", opt.type(), opt.length());
-                 bytes_left -= dhcp6_opt::size;
+                 fmt::print(stderr, "Option: '{}' length={}\n",
+                            dhcp6_opt_to_string(opt.type()), opt.length());
+                 BYTES_LEFT_DEC(dhcp6_opt::size);
                  auto l = opt.length();
                  auto ot = opt.type();
 
                  if (l > bytes_left) {
                      fmt::print(stderr, "Option is too long.\n");
-                     while (bytes_left--)
+                     while (bytes_left) {
+                         BYTES_LEFT_DEC(1);
                          is.get();
+                     }
                      continue;
                  }
 
@@ -294,16 +406,50 @@ void D6Listener::start_receive()
                      d6s.client_duid.reserve(l);
                      while (l--) {
                          d6s.client_duid.push_back(is.get());
-                         --bytes_left;
+                         BYTES_LEFT_DEC(1);
                      }
+                 } else if (ot == 3) { // Option_IA_NA
+                     if (l < 12) {
+                         CONSUME_OPT("Client-sent option IA_NA has a bad length.  Ignoring.\n");
+                     }
+                     d6s.ias.emplace_back();
+                     is >> d6s.ias.back();
+                     BYTES_LEFT_DEC(d6_ia::size);
+
+                     const auto na_options_len = l - 12;
+                     if (na_options_len > 0)
+                         d6s.prev_opt.emplace_back(std::make_pair(3, na_options_len));
+
+                     fmt::print("IA_NA: iaid={} t1={}s t2={} opt_len={}\n",
+                                d6s.ias.back().iaid, d6s.ias.back().t1_seconds,
+                                d6s.ias.back().t2_seconds, na_options_len);
+                 } else if (ot == 5) { // Address
+                     if (l < 12) {
+                         CONSUME_OPT("Client-sent option IAADDR has a bad length.  Ignoring.\n");
+                     }
+                     if (d6s.prev_opt.size() != 1) {
+                         CONSUME_OPT("Client-sent option IAADDR is not nested.  Ignoring.\n");
+                     }
+                     if (d6s.prev_opt.back().first != 3) {
+                         CONSUME_OPT("Client-sent option IAADDR must follow IA_NA.  Ignoring.\n");
+                     }
+                     d6s.ias.back().ia_na_addrs.emplace_back();
+                     is >> d6s.ias.back().ia_na_addrs.back();
+                     BYTES_LEFT_DEC(d6_ia_addr::size);
+
+                     auto iaa_options_len = l - 24;
+                     if (iaa_options_len > 0)
+                         d6s.prev_opt.emplace_back(std::make_pair(5, iaa_options_len));
+
+                     fmt::print("\tIA Address: {} prefer={}s valid={}s opt_len={}\n",
+                                d6s.ias.back().ia_na_addrs.back().addr.to_string(),
+                                d6s.ias.back().ia_na_addrs.back().prefer_lifetime,
+                                d6s.ias.back().ia_na_addrs.back().valid_lifetime,
+                                iaa_options_len);
+
                  } else if (ot == 6) { // OptionRequest
                      if (l % 2) {
-                         fmt::print(stderr, "Client-sent option Request has a bad length.  Ignoring.\n");
-                         while (l--) {
-                             is.get();
-                             --bytes_left;
-                         }
-                         continue;
+                         CONSUME_OPT("Client-sent option Request has a bad length.  Ignoring.\n");
                      }
                      d6s.optreq_exists = true;
                      l /= 2;
@@ -311,7 +457,7 @@ void D6Listener::start_receive()
                          char b[2];
                          b[1] = is.get();
                          b[0] = is.get();
-                         bytes_left -= 2;
+                         BYTES_LEFT_DEC(2);
                          uint16_t v;
                          memcpy(&v, b, 2);
                          switch (v) {
@@ -322,38 +468,52 @@ void D6Listener::start_receive()
                          default: break;
                          }
                      }
+                     fmt::print("\tOptions requested: dns={} dns_search={} info_refresh={} ntp={}\n",
+                                d6s.optreq_dns, d6s.optreq_dns_search,
+                                d6s.optreq_info_refresh_time, d6s.optreq_ntp);
                  } else if (ot == 8) { // ElapsedTime
                      // 16-bit hundreths of a second since start of exchange
                      if (l != 2) {
-                         fmt::print(stderr, "Client-sent option ElapsedTime has a bad length.  Ignoring.\n");
-                         while (l--) {
-                             is.get();
-                             --bytes_left;
-                         }
-                         continue;
+                         CONSUME_OPT("Client-sent option ElapsedTime has a bad length.  Ignoring.\n");
                      }
                      char b[2];
                      b[1] = is.get();
                      b[0] = is.get();
-                     bytes_left -= 2;
+                     BYTES_LEFT_DEC(2);
                      memcpy(&d6s.elapsed_time, b, 2);
+                 } else if (ot == 14) { // Rapid Commit
+                     if (l != 0) {
+                         CONSUME_OPT("Client-sent option Rapid Commit has a bad length.  Ignoring.\n");
+                     }
                  } else {
                      while (l--) {
                          is.get();
-                         --bytes_left;
+                         BYTES_LEFT_DEC(1);
                      }
                  }
              }
 
              ba::streambuf send_buffer;
              switch (d6s.header.msg_type()) {
+             case dhcp6_msgtype::advertise:
+                 handle_advertise_msg(d6s, send_buffer); break;
+             case dhcp6_msgtype::request:
+                 handle_request_msg(d6s, send_buffer); break;
+             case dhcp6_msgtype::confirm:
+                 handle_confirm_msg(d6s, send_buffer); break;
+             case dhcp6_msgtype::renew:
+                 handle_renew_msg(d6s, send_buffer); break;
+             case dhcp6_msgtype::rebind:
+                 handle_rebind_msg(d6s, send_buffer); break;
              case dhcp6_msgtype::information_request:
-                 handle_information_request(d6s, send_buffer); break;
+                 handle_information_msg(d6s, send_buffer); break;
              default: start_receive(); return;
              }
 
+             fmt::print("Calling send_to => {}\n", sender_endpoint_.address().to_string());
+
              boost::system::error_code ec;
-             socket_.send_to(send_buffer.data(), remote_endpoint_, 0, ec);
+             socket_.send_to(send_buffer.data(), sender_endpoint_, 0, ec);
              start_receive();
          });
 }

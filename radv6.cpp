@@ -114,20 +114,14 @@ public:
     }
     boost::asio::ip::address_v6 source_address() const
     {
-        boost::asio::ip::address_v6::bytes_type bytes
-            = { { data_[ 8], data_[ 9], data_[10], data_[11],
-                  data_[12], data_[13], data_[14], data_[15],
-                  data_[16], data_[17], data_[18], data_[19],
-                  data_[20], data_[21], data_[22], data_[23] } };
+        boost::asio::ip::address_v6::bytes_type bytes;
+        memcpy(&bytes, data_ + 8, 16);
         return boost::asio::ip::address_v6(bytes);
     }
     boost::asio::ip::address_v6 destination_address() const
     {
-        boost::asio::ip::address_v6::bytes_type bytes
-            = { { data_[24], data_[25], data_[26], data_[27],
-                  data_[28], data_[29], data_[30], data_[31],
-                  data_[32], data_[33], data_[34], data_[35],
-                  data_[36], data_[37], data_[38], data_[39] } };
+        boost::asio::ip::address_v6::bytes_type bytes;
+        memcpy(&bytes, data_ + 24, 16);
         return boost::asio::ip::address_v6(bytes);
     }
     static const std::size_t size = 40;
@@ -317,11 +311,8 @@ public:
     uint32_t preferred_lifetime() const { return decode32be(data_ + 8); }
     boost::asio::ip::address_v6 prefix() const
     {
-        boost::asio::ip::address_v6::bytes_type bytes
-            = { { data_[16], data_[17], data_[18], data_[19],
-                  data_[20], data_[21], data_[22], data_[23],
-                  data_[24], data_[25], data_[26], data_[27],
-                  data_[28], data_[29], data_[30], data_[31] } };
+        boost::asio::ip::address_v6::bytes_type bytes;
+        memcpy(&bytes, data_ + 16, 16);
         return boost::asio::ip::address_v6(bytes);
     }
     void on_link(bool v) { toggle_bit(v, data_, 3, 1 << 7); }
@@ -503,9 +494,11 @@ void RA6Listener::send_advert()
 
     ra6adv_hdr.hoplimit(0);
     if (g_stateful_assignment) {
+        fmt::print("Using stateful assignment.\n");
         ra6adv_hdr.managed_addresses(true);
         ra6adv_hdr.other_stateful(true);
     } else {
+        fmt::print("Using stateless assignment.\n");
         ra6adv_hdr.managed_addresses(false);
         ra6adv_hdr.other_stateful(true);
     }
