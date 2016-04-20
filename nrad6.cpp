@@ -84,6 +84,8 @@ extern std::vector<std::string> dns_search;
 extern void create_dns_search_blob();
 extern void create_ntp6_fqdns_blob();
 
+bool g_stateful_assignment{false};
+
 static void init_prng()
 {
     std::array<uint32_t, nk::rng::xorshift64m::state_size> seed_data;
