@@ -125,6 +125,7 @@ private:
         bool optreq_ntp:1;
     };
 
+    void write_serverid(std::ostream &os);
     void handle_information_request(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void start_receive();
     void attach_bpf(int fd);
