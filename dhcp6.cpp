@@ -136,8 +136,14 @@ void create_ntp6_fqdns_blob()
     }
 }
 
-void D6Listener::write_serverid(std::ostream &os)
+void D6Listener::write_response_header(const d6msg_state &d6s, std::ostream &os,
+                                       dhcp6_msgtype mtype)
 {
+    dhcp6_header send_d6hdr;
+    send_d6hdr.msg_type(mtype);
+    send_d6hdr.xid(d6s.header.xid());
+    os << send_d6hdr;
+
     dhcp6_opt send_serverid;
     send_serverid.type(2);
     send_serverid.length(10);
@@ -145,19 +151,6 @@ void D6Listener::write_serverid(std::ostream &os)
     dhcp6_hwaddr_duid send_hwduid;
     send_hwduid.macaddr(macaddr_);
     os << send_hwduid;
-}
-
-void D6Listener::handle_information_request(const d6msg_state &d6s,
-                                            ba::streambuf &send_buffer)
-{
-    dhcp6_header send_d6hdr;
-    send_d6hdr.msg_type(dhcp6_msgtype::reply);
-    send_d6hdr.xid(d6s.header.xid());
-
-    std::ostream os(&send_buffer);
-    os << send_d6hdr;
-
-    write_serverid(os);
 
     if (d6s.client_duid.size()) {
         dhcp6_opt send_clientid;
@@ -167,6 +160,20 @@ void D6Listener::handle_information_request(const d6msg_state &d6s,
         for (const auto &i: d6s.client_duid)
             os << i;
     }
+}
+
+void D6Listener::handle_advertise_request(const d6msg_state &d6s,
+                                          ba::streambuf &send_buffer)
+{
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::advertise);
+}
+
+void D6Listener::handle_information_request(const d6msg_state &d6s,
+                                            ba::streambuf &send_buffer)
+{
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::reply);
 
     // If opt_req.size() == 0 then send DnsServers, DomainList,
     // and NtpServer.  Otherwise, for each of these types,
