@@ -96,36 +96,33 @@ class dhcp6_opt_serverid
         }
         void macaddr(const char v[6]) { memcpy(data_ + 4, v, 6); }
         static const std::size_t size = 10;
-        friend std::istream& operator>>(std::istream &is, duid_hwaddr &header)
+        friend std::istream& operator>>(std::istream &is, duid_hwaddr &hwaddr)
         {
-            is.read(reinterpret_cast<char *>(header.data_), size);
+            is.read(reinterpret_cast<char *>(hwaddr.data_), size);
             return is;
         }
-        friend std::ostream& operator<<(std::ostream &os, const duid_hwaddr &header)
+        friend std::ostream& operator<<(std::ostream &os, const duid_hwaddr &hwaddr)
         {
-            return os.write(reinterpret_cast<const char *>(header.data_), size);
+            return os.write(reinterpret_cast<const char *>(hwaddr.data_), size);
         }
     private:
         uint8_t data_[10];
     };
 public:
-    dhcp6_opt_serverid(const char macaddr[6]) {
-        header.type(2);
-        header.length(10);
-        duid.macaddr(macaddr);
-    }
-    dhcp6_opt header;
+    dhcp6_opt_serverid(const char macaddr[6]) { duid.macaddr(macaddr); }
     duid_hwaddr duid;
-    static const std::size_t size = dhcp6_opt::size + duid_hwaddr::size;
+    static const std::size_t size = duid_hwaddr::size;
     friend std::istream& operator>>(std::istream &is, dhcp6_opt_serverid &opt)
     {
-        is >> opt.header;
         is >> opt.duid;
         return is;
     }
     friend std::ostream& operator<<(std::ostream &os, const dhcp6_opt_serverid &opt)
     {
-        os << opt.header;
+        dhcp6_opt header;
+        header.type(2);
+        header.length(10);
+        os << header;
         os << opt.duid;
         return os;
     }
