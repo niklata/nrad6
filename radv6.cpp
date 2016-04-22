@@ -194,12 +194,14 @@ public:
     uint8_t hoplimit() const { return data_[0]; }
     bool managed_addresses() const { return data_[1] & (1 << 7); }
     bool other_stateful() const { return data_[1] & (1 << 6); }
+    bool home_address() const { return data_[1] & (1 << 5); }
     uint16_t router_lifetime() const { return decode16be(data_ + 2); }
     uint32_t reachable_time() const { return decode32be(data_ + 4); }
     uint32_t retransmit_timer() const { return decode32be(data_ + 8); }
     void hoplimit(uint8_t v) { data_[0] = v; }
     void managed_addresses(bool v) { toggle_bit(v, data_, 1, 1 << 7); }
     void other_stateful(bool v) { toggle_bit(v, data_, 1, 1 << 6); }
+    void home_address(bool v) { toggle_bit(v, data_, 1, 1 << 5); }
     enum class RouterPref { High, Medium, Low };
     void default_router_preference(RouterPref v) {
         switch (v) {
@@ -307,6 +309,7 @@ public:
     uint8_t prefix_length() const { return data_[2]; }
     bool on_link() const { return data_[3] & (1 << 7); }
     bool auto_addr_cfg() const { return data_[3] & (1 << 6); }
+    bool router_addr_flag() const { return data_[3] & (1 << 5); }
     uint32_t valid_lifetime() const { return decode32be(data_ + 4); }
     uint32_t preferred_lifetime() const { return decode32be(data_ + 8); }
     boost::asio::ip::address_v6 prefix() const
@@ -317,6 +320,7 @@ public:
     }
     void on_link(bool v) { toggle_bit(v, data_, 3, 1 << 7); }
     void auto_addr_cfg(bool v) { toggle_bit(v, data_, 3, 1 << 6); }
+    void router_addr_flag(bool v) { toggle_bit(v, data_, 3, 1 << 5); }
     void valid_lifetime(uint32_t v) { encode32be(v, data_ + 4); }
     void preferred_lifetime(uint32_t v) { encode32be(v, data_ + 8); }
     void prefix(const boost::asio::ip::address_v6 &v, uint8_t pl) {
