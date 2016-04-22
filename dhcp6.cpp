@@ -384,7 +384,7 @@ void D6Listener::start_receive()
                         dhcp6_msgtype_to_string(d6s.header.msg_type()));
 
              while (bytes_left >= 4) {
-                 fmt::print(stderr, "bytes_left={}\n", bytes_left);
+                 //fmt::print(stderr, "bytes_left={}\n", bytes_left);
                  dhcp6_opt opt;
                  is >> opt;
                  fmt::print(stderr, "Option: '{}' length={}\n",
@@ -485,6 +485,31 @@ void D6Listener::start_receive()
                      if (l != 0) {
                          CONSUME_OPT("Client-sent option Rapid Commit has a bad length.  Ignoring.\n");
                      }
+                 } else if (ot == 39) { // Client FQDN
+                     fmt::print("FQDN Length: {}\n", l);
+                     if (l < 3) {
+                         CONSUME_OPT("Client-sent option Client FQDN has a bad length.  Ignoring.\n");
+                     }
+                     char flags;
+                     uint8_t namelen;
+                     flags = is.get();
+                     namelen = is.get();
+                     BYTES_LEFT_DEC(2);
+                     l -= 2;
+                     if (l != namelen) {
+                         CONSUME_OPT("Client-sent option Client FQDN namelen disagrees with length.  Ignoring.\n");
+                     }
+                     d6s.fqdn_.clear();
+                     d6s.fqdn_.reserve(namelen);
+                     fmt::print("FQDN Flags='{}', NameLen='{}'\n", +flags, +namelen);
+                     while (l--) {
+                        char c;
+                        c = is.get();
+                        BYTES_LEFT_DEC(1);
+                        d6s.fqdn_.push_back(c);
+                     }
+                     fmt::print("Client FQDN: flags={} '{}'\n",
+                                static_cast<uint8_t>(flags), d6s.fqdn_);
                  } else {
                      while (l--) {
                          is.get();

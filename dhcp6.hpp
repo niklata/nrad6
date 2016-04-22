@@ -172,6 +172,7 @@ private:
         d6msg_state() : optreq_exists(false), optreq_dns(false), optreq_dns_search(false),
                         optreq_info_refresh_time(false), optreq_ntp(false) {}
         dhcp6_header header;
+        std::string fqdn_;
         std::vector<uint8_t> client_duid;
         std::vector<d6_ia> ias;
         std::vector<prev_opt_state> prev_opt;
