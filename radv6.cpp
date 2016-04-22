@@ -132,8 +132,7 @@ public:
             is.setstate(std::ios::failbit);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ipv6_header &header)
+    friend std::ostream& operator<<(std::ostream &os, const ipv6_header &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -157,8 +156,7 @@ public:
         is.read(reinterpret_cast<char *>(header.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const icmp_header &header)
+    friend std::ostream& operator<<(std::ostream &os, const icmp_header &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -178,8 +176,7 @@ public:
         is.read(reinterpret_cast<char *>(header.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ra6_solicit_header &header)
+    friend std::ostream& operator<<(std::ostream &os, const ra6_solicit_header &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -229,8 +226,7 @@ public:
         is.read(reinterpret_cast<char *>(header.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ra6_advert_header &header)
+    friend std::ostream& operator<<(std::ostream &os, const ra6_advert_header &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -260,8 +256,7 @@ public:
         is.read(reinterpret_cast<char *>(opt.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ra6_source_lla_opt &header)
+    friend std::ostream& operator<<(std::ostream &os, const ra6_source_lla_opt &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -287,8 +282,7 @@ public:
         is.read(reinterpret_cast<char *>(opt.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ra6_mtu_opt &header)
+    friend std::ostream& operator<<(std::ostream &os, const ra6_mtu_opt &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -347,8 +341,7 @@ public:
         is.read(reinterpret_cast<char *>(opt.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ra6_prefix_info_opt &header)
+    friend std::ostream& operator<<(std::ostream &os, const ra6_prefix_info_opt &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -374,8 +367,7 @@ public:
         is.read(reinterpret_cast<char *>(opt.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ra6_rdns_opt &header)
+    friend std::ostream& operator<<(std::ostream &os, const ra6_rdns_opt &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -406,8 +398,7 @@ public:
         is.read(reinterpret_cast<char *>(opt.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const ra6_dns_search_opt &header)
+    friend std::ostream& operator<<(std::ostream &os, const ra6_dns_search_opt &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
