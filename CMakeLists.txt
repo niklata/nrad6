@@ -41,10 +41,22 @@ link_directories ( ${Boost_LIBRARY_DIRS} )
 include_directories ( ${Boost_INCLUDE_DIRS} )
 find_package(Threads)
 
+set(RAGEL_CFG ${CMAKE_CURRENT_BINARY_DIR}/cfg.cpp)
+
+find_program(RAGEL ragel)
+add_custom_command(
+  OUTPUT ${RAGEL_CFG}
+  COMMAND ${RAGEL} -G2 -o ${RAGEL_CFG} cfg.rl
+  DEPENDS cfg.rl
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Compiling Ragel state machine: cfg.rl"
+  VERBATIM
+  )
+
 file(GLOB NRAD6_SRCS_C "*.c")
 file(GLOB NRAD6_SRCS_CPP "*.cpp")
 list(APPEND NRAD6_SRCS ${NRAD6_SRCS_C} ${NRAD6_SRCS_CPP})
 
-add_executable(nrad6 ${NRAD6_SRCS})
+add_executable(nrad6 ${RAGEL_CFG} ${NRAD6_SRCS})
 target_link_libraries(nrad6 ${CMAKE_THREAD_LIBS_INIT} ${Boost_LIBRARIES} ncmlib cppformat)
 

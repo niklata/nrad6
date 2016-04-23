@@ -199,14 +199,56 @@ void D6Listener::write_response_header(const d6msg_state &d6s, std::ostream &os,
     dhcp6_opt_serverid send_serverid(macaddr_);
     os << send_serverid;
 
-    if (d6s.client_duid.size()) {
+    if (d6s.client_duid_blob.size()) {
         dhcp6_opt send_clientid;
         send_clientid.type(1);
-        send_clientid.length(d6s.client_duid.size());
+        send_clientid.length(d6s.client_duid_blob.size());
         os << send_clientid;
-        for (const auto &i: d6s.client_duid)
+        for (const auto &i: d6s.client_duid_blob)
             os << i;
     }
+}
+
+void D6Listener::emit_address(const d6msg_state &d6s, std::ostream &os, const iaid_mapping *v)
+{
+    dhcp6_opt header;
+    header.type(3);
+    header.length(d6_ia::size + dhcp6_opt::size + d6_ia_addr::size);
+    os << header;
+    d6_ia ia;
+    ia.iaid = v->iaid;
+    ia.t1_seconds = static_cast<uint32_t>(0.5 * v->lifetime);
+    ia.t2_seconds = static_cast<uint32_t>(0.8 * v->lifetime);
+    os << ia;
+    header.type(5);
+    header.length(d6_ia_addr::size);
+    os << header;
+    d6_ia_addr addr;
+    addr.addr = v->address;
+    addr.prefer_lifetime = v->lifetime;
+    addr.valid_lifetime = v->lifetime;
+    os << addr;
+}
+
+bool D6Listener::attach_address_info(const d6msg_state &d6s, std::ostream &os)
+{
+    bool ret{false};
+    // Look through IAs and send IA with assigned address as an option.
+    for (const auto &i: d6s.ias) {
+        printf("Querying duid='%s' iaid=%u...\n", d6s.client_duid.c_str(), i.iaid);
+        auto x = query_dhcp_state(d6s.client_duid, i.iaid);
+        if (x) {
+            ret = true;
+            fmt::print("Found address: {}\n", x->address.to_string());
+            emit_address(d6s, os, x);
+        } else {
+            fmt::print("Unknown DUID={} IAID={} from addr={}\n",
+                       d6s.client_duid, i.iaid, sender_endpoint_.address().to_string());
+        }
+    }
+    if (!ret)
+        fmt::print("No info!\n");
+    return ret;
 }
 
 // If opt_req.size() == 0 then send DnsServers, DomainList,
@@ -273,20 +315,21 @@ void D6Listener::attach_dns_ntp_info(const d6msg_state &d6s, std::ostream &os)
     }
 }
 
-void D6Listener::handle_advertise_msg(const d6msg_state &d6s, ba::streambuf &send_buffer)
+void D6Listener::handle_solicit_msg(const d6msg_state &d6s, ba::streambuf &send_buffer)
 {
     std::ostream os(&send_buffer);
-    write_response_header(d6s, os, dhcp6_msgtype::advertise);
+    write_response_header(d6s, os, !d6s.use_rapid_commit ? dhcp6_msgtype::advertise
+                                                         : dhcp6_msgtype::reply);
 
-    // XXX: Look through IAs and send IA with assigned address as an option.
+    attach_address_info(d6s, os);
     attach_dns_ntp_info(d6s, os);
 
-#if 0
-    dhcp6_opt rapid_commit;
-    rapid_commit.type(14);
-    rapid_commit.length(0);
-    os << rapid_commit;
-#endif
+    if (d6s.use_rapid_commit) {
+        dhcp6_opt rapid_commit;
+        rapid_commit.type(14);
+        rapid_commit.length(0);
+        os << rapid_commit;
+    }
 }
 
 void D6Listener::handle_request_msg(const d6msg_state &d6s, ba::streambuf &send_buffer)
@@ -294,23 +337,74 @@ void D6Listener::handle_request_msg(const d6msg_state &d6s, ba::streambuf &send_
     std::ostream os(&send_buffer);
     write_response_header(d6s, os, dhcp6_msgtype::reply);
 
-    // XXX: Look through IAs and send IA with assigned address as an option.
+    attach_address_info(d6s, os);
     attach_dns_ntp_info(d6s, os);
 }
 
 void D6Listener::handle_confirm_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer)
 {
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::reply);
 
+    bool all_ok{true};
+    for (const auto &i: d6s.ias) {
+        printf("Querying duid='%s' iaid=%u...\n", d6s.client_duid.c_str(), i.iaid);
+        auto x = query_dhcp_state(d6s.client_duid, i.iaid);
+        if (x) {
+            fmt::print("Found a match.\n");
+            for (const auto &j: i.ia_na_addrs) {
+                fmt::print("Checking address.\n");
+                if (j.addr != x->address) {
+                    all_ok = false;
+                    fmt::print("Mismatched address ({} != {}). NAK.\n",
+                               j.addr.to_string(), x->address.to_string());
+                    break;
+                }
+            }
+        } else {
+            fmt::print("Unknown DUID={} IAID={} from addr={}\n",
+                       d6s.client_duid, i.iaid, sender_endpoint_.address().to_string());
+        }
+        if (!all_ok) break;
+    }
+
+    // Write Status Code Success or NotOnLink.
+    char ok_str[] = "ACK";
+    char nak_str[] = "NAK";
+    dhcp6_opt header;
+    header.type(13);
+    header.length(2 + all_ok ? (sizeof ok_str - 1) : (sizeof ok_str - 1));
+    os << header;
+    d6_statuscode sc(all_ok ? d6_statuscode::code::success : d6_statuscode::code::notonlink);
+    os << sc;
+    if (all_ok) {
+        for (int i = 0; ok_str[i]; ++i)
+            os << ok_str[i];
+    } else {
+        for (int i = 0; nak_str[i]; ++i)
+            os << nak_str[i];
+    }
+
+    attach_dns_ntp_info(d6s, os);
 }
 
 void D6Listener::handle_renew_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer)
 {
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::reply);
 
+    // XXX: Write Status Code NoBinding if no record exists.
+    attach_address_info(d6s, os);
+    attach_dns_ntp_info(d6s, os);
 }
 
 void D6Listener::handle_rebind_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer)
 {
+    std::ostream os(&send_buffer);
+    write_response_header(d6s, os, dhcp6_msgtype::reply);
 
+    attach_address_info(d6s, os);
+    attach_dns_ntp_info(d6s, os);
 }
 
 void D6Listener::handle_information_msg(const d6msg_state &d6s, ba::streambuf &send_buffer)
@@ -383,6 +477,16 @@ void D6Listener::start_receive()
              fmt::print(stderr, "DHCP Message: {}\n",
                         dhcp6_msgtype_to_string(d6s.header.msg_type()));
 
+             // These message types are not allowed to be sent to servers.
+             switch (d6s.header.msg_type()) {
+             case dhcp6_msgtype::advertise:
+             case dhcp6_msgtype::reply:
+             case dhcp6_msgtype::reconfigure:
+             case dhcp6_msgtype::relay_reply:
+                 start_receive(); return;
+             default: break;
+             }
+
              while (bytes_left >= 4) {
                  //fmt::print(stderr, "bytes_left={}\n", bytes_left);
                  dhcp6_opt opt;
@@ -403,18 +507,16 @@ void D6Listener::start_receive()
                  }
 
                  if (ot == 1) { // ClientID
-                     d6s.client_duid.reserve(l);
+                     d6s.client_duid_blob.reserve(l);
+                     d6s.client_duid.reserve(2*l);
                      while (l--) {
-                         d6s.client_duid.push_back(is.get());
+                         uint8_t c = is.get();
+                         d6s.client_duid_blob.push_back(c);
+                         d6s.client_duid.append(fmt::sprintf("%02.x", c));
                          BYTES_LEFT_DEC(1);
                      }
-                     if (d6s.client_duid.size() > 0) {
-                        fmt::print("\tDUID: ");
-                        for (const auto &i: d6s.client_duid) {
-                            fmt::printf("%02.x", i);
-                        }
-                        fmt::print("\n");
-                     }
+                     if (d6s.client_duid.size() > 0)
+                        fmt::print("\tDUID: {}\n", d6s.client_duid);
                  } else if (ot == 3) { // Option_IA_NA
                      if (l < 12) {
                          CONSUME_OPT("Client-sent option IA_NA has a bad length.  Ignoring.\n");
@@ -427,11 +529,11 @@ void D6Listener::start_receive()
                      if (na_options_len > 0)
                          d6s.prev_opt.emplace_back(std::make_pair(3, na_options_len));
 
-                     fmt::printf("\tIA_NA: iaid=%08.x t1=%us t2=%us opt_len=%u\n",
+                     fmt::printf("\tIA_NA: iaid=%u t1=%us t2=%us opt_len=%u\n",
                                 d6s.ias.back().iaid, d6s.ias.back().t1_seconds,
                                 d6s.ias.back().t2_seconds, na_options_len);
                  } else if (ot == 5) { // Address
-                     if (l < 12) {
+                     if (l < 24) {
                          CONSUME_OPT("Client-sent option IAADDR has a bad length.  Ignoring.\n");
                      }
                      if (d6s.prev_opt.size() != 1) {
@@ -440,7 +542,11 @@ void D6Listener::start_receive()
                      if (d6s.prev_opt.back().first != 3) {
                          CONSUME_OPT("Client-sent option IAADDR must follow IA_NA.  Ignoring.\n");
                      }
+                     if (d6s.ias.empty())
+                         throw std::logic_error("d6.ias is empty");
                      d6s.ias.back().ia_na_addrs.emplace_back();
+                     if (d6s.ias.back().ia_na_addrs.empty())
+                         throw std::logic_error("d6.ias.back().ia_na_addrs is empty");
                      is >> d6s.ias.back().ia_na_addrs.back();
                      BYTES_LEFT_DEC(d6_ia_addr::size);
 
@@ -467,13 +573,23 @@ void D6Listener::start_receive()
                          BYTES_LEFT_DEC(2);
                          uint16_t v;
                          memcpy(&v, b, 2);
+                         fmt::print("Option Request:");
                          switch (v) {
-                         case 23: d6s.optreq_dns = true; break;
-                         case 24: d6s.optreq_dns_search = true; break;
-                         case 32: d6s.optreq_info_refresh_time = true; break;
-                         case 56: d6s.optreq_ntp = true; break;
-                         default: break;
+                         case 23: d6s.optreq_dns = true;
+                                  fmt::print(" DNS");
+                                  break;
+                         case 24: d6s.optreq_dns_search = true;
+                                  fmt::print(" DNS_SEARCH");
+                                  break;
+                         case 32: d6s.optreq_info_refresh_time = true;
+                                  fmt::print(" INFO_REFRESH");
+                                  break;
+                         case 56: d6s.optreq_ntp = true;
+                                  fmt::print(" NTP");
+                                  break;
+                         default: fmt::print(" {}", v); break;
                          }
+                         fmt::print("\n");
                      }
                      fmt::print("\tOptions requested: dns={} dns_search={} info_refresh={} ntp={}\n",
                                 d6s.optreq_dns, d6s.optreq_dns_search,
@@ -528,8 +644,8 @@ void D6Listener::start_receive()
 
              ba::streambuf send_buffer;
              switch (d6s.header.msg_type()) {
-             case dhcp6_msgtype::advertise:
-                 handle_advertise_msg(d6s, send_buffer); break;
+             case dhcp6_msgtype::solicit:
+                 handle_solicit_msg(d6s, send_buffer); break;
              case dhcp6_msgtype::request:
                  handle_request_msg(d6s, send_buffer); break;
              case dhcp6_msgtype::confirm:

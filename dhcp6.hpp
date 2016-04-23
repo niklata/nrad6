@@ -6,6 +6,7 @@
 #include <iterator>
 #include <boost/asio.hpp>
 #include "netbits.hpp"
+#include "dhcp_state.hpp"
 
 enum class dhcp6_msgtype {
     unknown = 0,
@@ -73,8 +74,7 @@ public:
         is.read(reinterpret_cast<char *>(header.data_), size);
         return is;
     }
-    friend std::ostream& operator<<(std::ostream &os,
-                                    const dhcp6_opt &header)
+    friend std::ostream& operator<<(std::ostream &os, const dhcp6_opt &header)
     {
         return os.write(reinterpret_cast<const char *>(header.data_), size);
     }
@@ -128,6 +128,79 @@ public:
     }
 };
 
+struct d6_ia_addr {
+    boost::asio::ip::address_v6 addr;
+    uint32_t prefer_lifetime;
+    uint32_t valid_lifetime;
+    static const std::size_t size = 24;
+    friend std::istream& operator>>(std::istream &is, d6_ia_addr &ia)
+    {
+        boost::asio::ip::address_v6::bytes_type addrbytes;
+        char data[24];
+        is.read(data, sizeof data);
+        memcpy(&addrbytes, data, 16);
+        ia.addr = boost::asio::ip::address_v6(addrbytes);
+        ia.prefer_lifetime = decode32be(data + 16);
+        ia.valid_lifetime = decode32be(data + 20);
+        return is;
+    }
+    friend std::ostream& operator<<(std::ostream &os, const d6_ia_addr &ia)
+    {
+        char data[24];
+        const auto bytes = ia.addr.to_bytes();
+        memcpy(data, bytes.data(), 16);
+        encode32be(ia.prefer_lifetime, data + 16);
+        encode32be(ia.valid_lifetime, data + 20);
+        return os.write(data, sizeof data);
+    }
+};
+struct d6_ia {
+    uint32_t iaid;
+    uint32_t t1_seconds;
+    uint32_t t2_seconds;
+    std::vector<d6_ia_addr> ia_na_addrs;
+    static const std::size_t size = 12;
+    friend std::istream& operator>>(std::istream &is, d6_ia &ia)
+    {
+        char data[12];
+        is.read(data, size);
+        ia.iaid = decode32be(data);
+        ia.t1_seconds = decode32be(data + 4);
+        ia.t2_seconds = decode32be(data + 8);
+        return is;
+    }
+    friend std::ostream& operator<<(std::ostream &os, const d6_ia &ia)
+    {
+        char data[12];
+        encode32be(ia.iaid, data);
+        encode32be(ia.t1_seconds, data + 4);
+        encode32be(ia.t2_seconds, data + 8);
+        return os.write(data, sizeof data);
+    }
+};
+struct d6_statuscode
+{
+    enum class code {
+        success = 0,
+        unspecfail = 1,
+        noaddrsavail = 2,
+        nobinding = 3,
+        notonlink = 4,
+        usemulticast = 5,
+    };
+    d6_statuscode() : status_code(code::success) {}
+    explicit d6_statuscode(code c) : status_code(c) {}
+    code status_code;
+    static const std::size_t size = 2;
+    friend std::ostream& operator<<(std::ostream &os, const d6_statuscode &statuscode)
+    {
+        auto ct = static_cast<uint16_t>(statuscode.status_code);
+        char data[2];
+        encode16be(ct, data);
+        return os.write(data, sizeof data);
+    }
+};
+
 class D6Listener
 {
 public:
@@ -135,37 +208,6 @@ public:
                const std::string &ifname,
                const char macaddr[6]);
 private:
-    struct d6_ia_addr {
-        boost::asio::ip::address_v6 addr;
-        uint32_t prefer_lifetime;
-        uint32_t valid_lifetime;
-        static const std::size_t size = 24;
-        friend std::istream& operator>>(std::istream &is, d6_ia_addr &ia)
-        {
-            char data[24] = {0};
-            is.read(data, size);
-            ia.addr.from_string(data);
-            ia.prefer_lifetime = decode32be(data + 16);
-            ia.valid_lifetime = decode32be(data + 20);
-            return is;
-        }
-    };
-    struct d6_ia {
-        uint32_t iaid;
-        uint32_t t1_seconds;
-        uint32_t t2_seconds;
-        std::vector<d6_ia_addr> ia_na_addrs;
-        static const std::size_t size = 12;
-        friend std::istream& operator>>(std::istream &is, d6_ia &ia)
-        {
-            char data[12];
-            is.read(data, size);
-            ia.iaid = decode32be(data);
-            ia.t1_seconds = decode32be(data + 4);
-            ia.t2_seconds = decode32be(data + 8);
-            return is;
-        }
-    };
     using prev_opt_state = std::pair<int8_t, uint16_t>; // Type of parent opt and length left
     struct d6msg_state
     {
@@ -174,7 +216,8 @@ private:
                         use_rapid_commit(false) {}
         dhcp6_header header;
         std::string fqdn_;
-        std::vector<uint8_t> client_duid;
+        std::string client_duid;
+        std::vector<uint8_t> client_duid_blob;
         std::vector<d6_ia> ias;
         std::vector<prev_opt_state> prev_opt;
         uint16_t elapsed_time;
@@ -188,9 +231,11 @@ private:
         bool use_rapid_commit:1;
     };
 
+    void emit_address(const d6msg_state &d6s, std::ostream &os, const iaid_mapping *v);
+    bool attach_address_info(const d6msg_state &d6s, std::ostream &os);
     void attach_dns_ntp_info(const d6msg_state &d6s, std::ostream &os);
     void write_response_header(const d6msg_state &d6s, std::ostream &os, dhcp6_msgtype mtype);
-    void handle_advertise_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
+    void handle_solicit_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void handle_request_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void handle_confirm_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void handle_renew_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);

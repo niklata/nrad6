@@ -59,6 +59,7 @@ extern "C" {
 #include "nlsocket.hpp"
 #include "radv6.hpp"
 #include "xorshift.hpp"
+#include "dhcp_state.hpp"
 
 boost::asio::io_service io_service;
 static boost::asio::signal_set asio_signal_set(io_service);
@@ -84,7 +85,7 @@ extern std::vector<std::string> dns_search;
 extern void create_dns_search_blob();
 extern void create_ntp6_fqdns_blob();
 
-bool g_stateful_assignment{false};
+bool g_stateful_assignment{true};
 
 static void init_prng()
 {
@@ -287,6 +288,8 @@ static void process_options(int ac, char *av[])
             listeners.emplace_back(std::make_unique<RA6Listener>(io_service, i));
         } catch (const std::out_of_range &exn) {}
     }
+
+    init_dhcp_state();
 
     if (gflags_detach && daemon(0,0)) {
         fmt::print(stderr, "detaching fork failed\n");
