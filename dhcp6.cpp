@@ -408,6 +408,13 @@ void D6Listener::start_receive()
                          d6s.client_duid.push_back(is.get());
                          BYTES_LEFT_DEC(1);
                      }
+                     if (d6s.client_duid.size() > 0) {
+                        fmt::print("\tDUID: ");
+                        for (const auto &i: d6s.client_duid) {
+                            fmt::printf("%02.x", i);
+                        }
+                        fmt::print("\n");
+                     }
                  } else if (ot == 3) { // Option_IA_NA
                      if (l < 12) {
                          CONSUME_OPT("Client-sent option IA_NA has a bad length.  Ignoring.\n");
@@ -420,7 +427,7 @@ void D6Listener::start_receive()
                      if (na_options_len > 0)
                          d6s.prev_opt.emplace_back(std::make_pair(3, na_options_len));
 
-                     fmt::print("IA_NA: iaid={} t1={}s t2={} opt_len={}\n",
+                     fmt::printf("\tIA_NA: iaid=%08.x t1=%us t2=%us opt_len=%u\n",
                                 d6s.ias.back().iaid, d6s.ias.back().t1_seconds,
                                 d6s.ias.back().t2_seconds, na_options_len);
                  } else if (ot == 5) { // Address
@@ -485,8 +492,9 @@ void D6Listener::start_receive()
                      if (l != 0) {
                          CONSUME_OPT("Client-sent option Rapid Commit has a bad length.  Ignoring.\n");
                      }
+                     d6s.use_rapid_commit = true;
                  } else if (ot == 39) { // Client FQDN
-                     fmt::print("FQDN Length: {}\n", l);
+                     fmt::print("\tFQDN Length: {}\n", l);
                      if (l < 3) {
                          CONSUME_OPT("Client-sent option Client FQDN has a bad length.  Ignoring.\n");
                      }
@@ -501,14 +509,14 @@ void D6Listener::start_receive()
                      }
                      d6s.fqdn_.clear();
                      d6s.fqdn_.reserve(namelen);
-                     fmt::print("FQDN Flags='{}', NameLen='{}'\n", +flags, +namelen);
+                     fmt::print("\tFQDN Flags='{}', NameLen='{}'\n", +flags, +namelen);
                      while (l--) {
                         char c;
                         c = is.get();
                         BYTES_LEFT_DEC(1);
                         d6s.fqdn_.push_back(c);
                      }
-                     fmt::print("Client FQDN: flags={} '{}'\n",
+                     fmt::print("\tClient FQDN: flags={} '{}'\n",
                                 static_cast<uint8_t>(flags), d6s.fqdn_);
                  } else {
                      while (l--) {

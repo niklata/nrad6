@@ -170,7 +170,8 @@ private:
     struct d6msg_state
     {
         d6msg_state() : optreq_exists(false), optreq_dns(false), optreq_dns_search(false),
-                        optreq_info_refresh_time(false), optreq_ntp(false) {}
+                        optreq_info_refresh_time(false), optreq_ntp(false),
+                        use_rapid_commit(false) {}
         dhcp6_header header;
         std::string fqdn_;
         std::vector<uint8_t> client_duid;
@@ -183,6 +184,8 @@ private:
         bool optreq_dns_search:1;
         bool optreq_info_refresh_time:1;
         bool optreq_ntp:1;
+
+        bool use_rapid_commit:1;
     };
 
     void attach_dns_ntp_info(const d6msg_state &d6s, std::ostream &os);
