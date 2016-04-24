@@ -73,11 +73,12 @@ using baia6 = boost::asio::ip::address_v6;
     action IaidEn { cps.iaid = std::string(cps.st, p - cps.st); }
     action V6AddrEn { cps.v6_addr = std::string(cps.st, p - cps.st); }
     action DefLifeEn { cps.default_lifetime = std::string(cps.st, p - cps.st); }
-    # XXX: Catch exception from baia6::from_string()!
     action V6EntryEn {
-        emplace_dhcp_state(std::move(cps.duid), nk::str_to_u32(cps.iaid),
-                           cps.v6_addr, nk::str_to_u32(cps.default_lifetime));
-     }
+        auto r = emplace_dhcp_state(std::move(cps.duid), nk::str_to_u32(cps.iaid),
+                                    cps.v6_addr, nk::str_to_u32(cps.default_lifetime));
+        if (!r)
+            fmt::print(stderr, "Bad IPv6 address at line {}: {}", linenum, cps.v6_addr);
+    }
 
     duid = (xdigit+ | (xdigit{2} ('-' xdigit{2})*)+) >St %DuidEn;
     iaid = digit+ >St %IaidEn;
@@ -92,7 +93,8 @@ using baia6 = boost::asio::ip::address_v6;
 
 %% write data;
 
-static int do_parse_cfg_line(cfg_parse_state &cps, const char *p, size_t plen)
+static int do_parse_cfg_line(cfg_parse_state &cps, const char *p, size_t plen,
+                             const size_t linenum)
 {
     const char *pe = p + plen;
     const char *eof = pe;
@@ -132,7 +134,7 @@ void parse_config(const std::string &path)
         if (llen == 0)
             continue;
         cfg_parse_state ps;
-        auto r = do_parse_cfg_line(ps, buf, llen);
+        auto r = do_parse_cfg_line(ps, buf, llen, linenum);
         if (r < 0) {
             if (r == -2)
                 fmt::print(stderr, "{}: Incomplete configuration at line {}; ignoring\n",
