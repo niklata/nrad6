@@ -575,18 +575,11 @@ void D6Listener::start_receive()
                          memcpy(&v, b, 2);
                          fmt::print("Option Request:");
                          switch (v) {
-                         case 23: d6s.optreq_dns = true;
-                                  fmt::print(" DNS");
-                                  break;
-                         case 24: d6s.optreq_dns_search = true;
-                                  fmt::print(" DNS_SEARCH");
-                                  break;
-                         case 32: d6s.optreq_info_refresh_time = true;
-                                  fmt::print(" INFO_REFRESH");
-                                  break;
-                         case 56: d6s.optreq_ntp = true;
-                                  fmt::print(" NTP");
-                                  break;
+                         case 23: d6s.optreq_dns = true; fmt::print(" DNS"); break;
+                         case 24: d6s.optreq_dns_search = true; fmt::print(" DNS_SEARCH"); break;
+                         case 31: d6s.optreq_sntp = true; fmt::print(" SNTP"); break;
+                         case 32: d6s.optreq_info_refresh_time = true; fmt::print(" INFO_REFRESH"); break;
+                         case 56: d6s.optreq_ntp = true; fmt::print(" NTP"); break;
                          default: fmt::print(" {}", v); break;
                          }
                          fmt::print("\n");
