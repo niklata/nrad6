@@ -63,6 +63,7 @@ extern "C" {
 
 boost::asio::io_service io_service;
 static boost::asio::signal_set asio_signal_set(io_service);
+static std::string configfile{"/etc/nrad6.conf"};
 static uid_t nrad6_uid;
 static gid_t nrad6_gid;
 static bool use_seccomp(false);
@@ -81,6 +82,7 @@ extern std::vector<boost::asio::ip::address_v6> ntp6_multicasts; // XXX
 extern std::vector<std::string> ntp6_fqdns; // XXX
 
 extern void create_ntp6_fqdns_blob();
+extern void parse_config(const std::string &path);
 
 bool g_stateful_assignment{true};
 
@@ -196,9 +198,8 @@ static void print_version(void)
 }
 
 enum OpIdx {
-    OPT_UNKNOWN, OPT_HELP, OPT_VERSION, OPT_BACKGROUND, OPT_PIDFILE,
-    OPT_CHROOT, OPT_USER, OPT_SECCOMP,
-    OPT_QUIET
+    OPT_UNKNOWN, OPT_HELP, OPT_VERSION, OPT_BACKGROUND, OPT_CONFIG,
+    OPT_PIDFILE, OPT_CHROOT, OPT_USER, OPT_SECCOMP, OPT_QUIET
 };
 static const option::Descriptor usage[] = {
     { OPT_UNKNOWN,    0,  "",           "", Arg::Unknown,
@@ -208,6 +209,7 @@ static const option::Descriptor usage[] = {
     { OPT_HELP,       0, "h",            "help",    Arg::None, "\t-h, \t--help  \tPrint usage and exit." },
     { OPT_VERSION,    0, "v",         "version",    Arg::None, "\t-v, \t--version  \tPrint version and exit." },
     { OPT_BACKGROUND, 0, "b",      "background",    Arg::None, "\t-b, \t--background  \tRun as a background daemon." },
+    { OPT_CONFIG,     0, "c",          "config",  Arg::String, "\t-c, \t--config  \tPath to configuration file (default: /etc/nrad6.conf)."},
     { OPT_PIDFILE,    0, "f",         "pidfile",  Arg::String, "\t-f, \t--pidfile  \tPath to process id file." },
     { OPT_CHROOT,     0, "C",          "chroot",  Arg::String, "\t-C, \t--chroot  \tPath in which nident should chroot itself." },
     { OPT_USER,       0, "u",            "user",  Arg::String, "\t-u, \t--user  \tUser name that nrad6 should run as." },
@@ -249,6 +251,7 @@ static void process_options(int ac, char *av[])
         option::Option &opt = buffer[i];
         switch (opt.index()) {
             case OPT_BACKGROUND: gflags_detach = 1; break;
+            case OPT_CONFIG: configfile = std::string(opt.arg); break;
             case OPT_PIDFILE: pidfile = std::string(opt.arg); break;
             case OPT_CHROOT: chroot_path = std::string(opt.arg); break;
             case OPT_USER: {
@@ -280,7 +283,7 @@ static void process_options(int ac, char *av[])
         } catch (const std::out_of_range &exn) {}
     }
 
-    init_dhcp_state();
+    parse_config(configfile);
 
     if (gflags_detach && daemon(0,0)) {
         fmt::print(stderr, "detaching fork failed\n");

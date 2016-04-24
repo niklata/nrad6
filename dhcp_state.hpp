@@ -18,7 +18,6 @@ struct dhcpv4_entry {
     uint32_t lifetime;
 };
 
-void init_dhcp_state();
 bool emplace_dhcp_state(std::string &&duid, uint32_t iaid, const std::string &v6_addr,
                         uint32_t default_lifetime);
 bool emplace_dhcp_state(std::string &&macaddr, const std::string &v4_addr,
