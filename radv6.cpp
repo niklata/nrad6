@@ -52,7 +52,6 @@ extern "C" {
 
 extern std::vector<boost::asio::ip::address_v6> dns6_servers;
 extern std::vector<uint8_t> dns_search_blob;
-extern bool g_stateful_assignment;
 
 /* XXX: Configuration options:
  *
@@ -488,15 +487,8 @@ void RA6Listener::send_advert()
     csum = net_checksum161c(&icmp_hdr, sizeof icmp_hdr);
 
     ra6adv_hdr.hoplimit(0);
-    if (g_stateful_assignment) {
-        fmt::print("Using stateful assignment.\n");
-        ra6adv_hdr.managed_addresses(true);
-        ra6adv_hdr.other_stateful(true);
-    } else {
-        fmt::print("Using stateless assignment.\n");
-        ra6adv_hdr.managed_addresses(false);
-        ra6adv_hdr.other_stateful(true);
-    }
+    ra6adv_hdr.managed_addresses(true);
+    ra6adv_hdr.other_stateful(true);
     ra6adv_hdr.router_lifetime(3 * advi_s_max_);
     ra6adv_hdr.reachable_time(0);
     ra6adv_hdr.retransmit_timer(0);
@@ -519,7 +511,7 @@ void RA6Listener::send_advert()
             ra6_prefix_info_opt ra6_pfxi;
             ra6_pfxi.prefix(i.address, i.prefixlen);
             ra6_pfxi.on_link(true);
-            ra6_pfxi.auto_addr_cfg(!g_stateful_assignment);
+            ra6_pfxi.auto_addr_cfg(false);
             ra6_pfxi.valid_lifetime(2592000);
             ra6_pfxi.preferred_lifetime(604800);
             ra6_pfxs.push_back(ra6_pfxi);

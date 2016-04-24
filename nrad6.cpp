@@ -85,8 +85,6 @@ extern std::vector<std::string> ntp6_fqdns; // XXX
 extern void create_ntp6_fqdns_blob();
 extern void parse_config(const std::string &path);
 
-bool g_stateful_assignment{true};
-
 static void init_prng()
 {
     std::array<uint32_t, nk::rng::xorshift64m::state_size> seed_data;
