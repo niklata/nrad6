@@ -50,6 +50,7 @@
 #include <boost/asio.hpp>
 #include <nk/format.hpp>
 #include <nk/optionarg.hpp>
+#include <nk/str_to_int.hpp>
 extern "C" {
 #include "nk/log.h"
 #include "nk/privilege.h"
@@ -235,7 +236,9 @@ static void process_options(int ac, char *av[])
     if (parse.error())
         std::exit(EXIT_FAILURE);
     if (options[OPT_HELP]) {
-        int col = getenv("COLUMNS") ? atoi(getenv("COLUMNS")) : 80;
+        uint16_t col{80};
+        const auto cols = getenv("COLUMNS");
+        if (cols) col = nk::str_to_u16(cols);
         option::printUsage(fwrite, stdout, usage, col);
         std::exit(EXIT_FAILURE);
     }
