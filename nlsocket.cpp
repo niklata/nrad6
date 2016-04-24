@@ -27,8 +27,8 @@
  */
 
 #include <nk/format.hpp>
+#include <nk/xorshift.hpp>
 #include "nlsocket.hpp"
-#include "xorshift.hpp"
 extern "C" {
 #include "nl.h"
 }

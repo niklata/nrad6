@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <iterator>
 #include <boost/asio.hpp>
-#include "netbits.hpp"
+#include <nk/netbits.hpp>
 #include "dhcp_state.hpp"
 
 enum class dhcp6_msgtype {

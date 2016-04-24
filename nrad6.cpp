@@ -51,6 +51,7 @@
 #include <nk/format.hpp>
 #include <nk/optionarg.hpp>
 #include <nk/str_to_int.hpp>
+#include <nk/xorshift.hpp>
 extern "C" {
 #include "nk/log.h"
 #include "nk/privilege.h"
@@ -59,7 +60,6 @@ extern "C" {
 }
 #include "nlsocket.hpp"
 #include "radv6.hpp"
-#include "xorshift.hpp"
 #include "dhcp_state.hpp"
 
 boost::asio::io_service io_service;

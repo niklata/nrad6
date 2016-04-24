@@ -38,13 +38,13 @@
 #include <sys/socket.h>
 
 #include <nk/format.hpp>
+#include <nk/netbits.hpp>
+#include <nk/xorshift.hpp>
 #include "radv6.hpp"
 #include "nlsocket.hpp"
 #include "dhcp6.hpp"
 #include "multicast6.hpp"
-#include "netbits.hpp"
 #include "attach_bpf.h"
-#include "xorshift.hpp"
 
 extern "C" {
 #include "nk/net_checksum.h"
