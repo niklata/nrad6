@@ -35,10 +35,17 @@
 
 #define MAX_LINE 2048
 
+std::vector<boost::asio::ip::address_v6> dns6_servers;
+std::vector<boost::asio::ip::address_v4> dns4_servers;
+std::vector<std::string> dns_search;
+extern void create_dns_search_blob();
+
 /*
 
 Our configuration file looks like:
 
+dns_server <value>
+dns_search <value>
 default_lifetime <value>
 
 // Comment
@@ -51,11 +58,18 @@ v6 <DUID> <IAID> <address> [lifetime=value]
 
 struct cfg_parse_state {
     cfg_parse_state() : st(nullptr), cs(0), default_lifetime("7200") {}
+    void newline() {
+        duid.clear();
+        iaid.clear();
+        v4_addr.clear();
+        v6_addr.clear();
+    }
     const char *st;
     int cs;
 
     std::string duid;
     std::string iaid;
+    std::string v4_addr;
     std::string v6_addr;
     std::string default_lifetime;
 };
@@ -71,7 +85,25 @@ using baia6 = boost::asio::ip::address_v6;
     # XXX: Normalize to lowercase!
     action DuidEn { cps.duid = std::string(cps.st, p - cps.st); }
     action IaidEn { cps.iaid = std::string(cps.st, p - cps.st); }
+    action V4AddrEn { cps.v4_addr = std::string(cps.st, p - cps.st); }
     action V6AddrEn { cps.v6_addr = std::string(cps.st, p - cps.st); }
+    action DnsServerEn {
+        boost::system::error_code ec;
+        if (cps.v4_addr.size()) {
+            auto v4a = boost::asio::ip::address_v4::from_string(cps.v4_addr, ec);
+            if (!ec)
+                dns4_servers.emplace_back(std::move(v4a));
+            else
+                fmt::print(stderr, "Bad IP address at line {}: {}", linenum, cps.v4_addr);
+        } else {
+            auto v6a = boost::asio::ip::address_v6::from_string(cps.v6_addr, ec);
+            if (!ec)
+                dns6_servers.emplace_back(std::move(v6a));
+            else
+                fmt::print(stderr, "Bad IPv6 address at line {}: {}", linenum, cps.v6_addr);
+        }
+    }
+    action DnsSearchEn { dns_search.emplace_back(std::string(cps.st, p - cps.st)); }
     action DefLifeEn { cps.default_lifetime = std::string(cps.st, p - cps.st); }
     action V6EntryEn {
         auto r = emplace_dhcp_state(std::move(cps.duid), nk::str_to_u32(cps.iaid),
@@ -82,13 +114,16 @@ using baia6 = boost::asio::ip::address_v6;
 
     duid = (xdigit+ | (xdigit{2} ('-' xdigit{2})*)+) >St %DuidEn;
     iaid = digit+ >St %IaidEn;
+    v4_addr = (digit{1,3} | '.')+ >St %V4AddrEn;
     v6_addr = (xdigit{1,4} | ':')+ >St %V6AddrEn;
 
     comment = space* ('//' any*)?;
+    dns_server = space* 'dns_server' space+ (v4_addr | v6_addr) %DnsServerEn space*;
+    dns_search = space* 'dns_search' space+ graph+ >St %DnsSearchEn space*;
     default_lifetime = space* 'default_lifetime' space+ digit+ >St %DefLifeEn space*;
     v6_entry = space* 'v6' space+ duid space+ iaid space+ v6_addr space*;
 
-    main := comment | default_lifetime | v6_entry %V6EntryEn;
+    main := comment | dns_server | dns_search | default_lifetime | v6_entry %V6EntryEn;
 }%%
 
 %% write data;
@@ -120,6 +155,7 @@ void parse_config(const std::string &path)
     }
     SCOPE_EXIT{ fclose(f); };
     size_t linenum = 0;
+    cfg_parse_state ps;
     while (!feof(f)) {
         auto fsv = fgets(buf, sizeof buf, f);
         auto llen = strlen(buf);
@@ -133,7 +169,7 @@ void parse_config(const std::string &path)
         }
         if (llen == 0)
             continue;
-        cfg_parse_state ps;
+        ps.newline();
         auto r = do_parse_cfg_line(ps, buf, llen, linenum);
         if (r < 0) {
             if (r == -2)
@@ -145,5 +181,7 @@ void parse_config(const std::string &path)
             continue;
         }
     }
+    if (!dns_search.empty())
+        create_dns_search_blob();
 }
 

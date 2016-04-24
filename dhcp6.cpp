@@ -27,11 +27,12 @@ void D6Listener::attach_bpf(int fd)
     //using_bpf_ = attach_bpf_dhcp6_info(fd, ifname_.c_str());
 }
 
-std::vector<boost::asio::ip::address_v6> dns6_servers;
+extern std::vector<boost::asio::ip::address_v6> dns6_servers;
+extern std::vector<std::string> dns_search;
+
 std::vector<boost::asio::ip::address_v6> ntp6_servers;
 std::vector<boost::asio::ip::address_v6> ntp6_multicasts;
 std::vector<std::string> ntp6_fqdns;
-std::vector<std::string> dns_search;
 
 std::vector<uint8_t> dns_search_blob;
 std::vector<uint8_t> ntp6_fqdns_blob;

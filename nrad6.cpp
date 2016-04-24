@@ -76,13 +76,10 @@ static std::vector<std::unique_ptr<RA6Listener>> listeners;
 static std::random_device g_random_secure;
 nk::rng::xorshift64m g_random_prng(0);
 
-extern std::vector<boost::asio::ip::address_v6> dns6_servers;
 extern std::vector<boost::asio::ip::address_v6> ntp6_servers; // XXX
 extern std::vector<boost::asio::ip::address_v6> ntp6_multicasts; // XXX
 extern std::vector<std::string> ntp6_fqdns; // XXX
-extern std::vector<std::string> dns_search;
 
-extern void create_dns_search_blob();
 extern void create_ntp6_fqdns_blob();
 
 bool g_stateful_assignment{true};
@@ -200,7 +197,7 @@ static void print_version(void)
 
 enum OpIdx {
     OPT_UNKNOWN, OPT_HELP, OPT_VERSION, OPT_BACKGROUND, OPT_PIDFILE,
-    OPT_CHROOT, OPT_USER, OPT_DNSSERVER, OPT_DNSSEARCH, OPT_SECCOMP,
+    OPT_CHROOT, OPT_USER, OPT_SECCOMP,
     OPT_QUIET
 };
 static const option::Descriptor usage[] = {
@@ -214,8 +211,6 @@ static const option::Descriptor usage[] = {
     { OPT_PIDFILE,    0, "f",         "pidfile",  Arg::String, "\t-f, \t--pidfile  \tPath to process id file." },
     { OPT_CHROOT,     0, "C",          "chroot",  Arg::String, "\t-C, \t--chroot  \tPath in which nident should chroot itself." },
     { OPT_USER,       0, "u",            "user",  Arg::String, "\t-u, \t--user  \tUser name that nrad6 should run as." },
-    { OPT_DNSSERVER,  0, "d",      "dns-server",  Arg::String, "\t-d, \t--dns-server  \tIPV6 address of a DNS server that hosts will use (default none)." },
-    { OPT_DNSSEARCH,  0, "s",      "dns-search",  Arg::String, "\t-S, \t--dns-search  \tDefault name postfix for DNS searches (default none)." },
     { OPT_SECCOMP,    0, "S", "seccomp-enforce",    Arg::None, "\t    \t--seccomp-enforce  \tEnforce seccomp syscall restrictions." },
     { OPT_QUIET,      0, "q",           "quiet",    Arg::None, "\t-q, \t--quiet  \tDon't log to std(out|err) or syslog." },
     {0,0,0,0,0,0}
@@ -263,8 +258,6 @@ static void process_options(int ac, char *av[])
                 }
                 break;
             }
-            case OPT_DNSSERVER: dns6_servers.emplace_back(boost::asio::ip::address_v6::from_string(opt.arg)); break;
-            case OPT_DNSSEARCH: dns_search.emplace_back(opt.arg); break;
             case OPT_SECCOMP: use_seccomp = true; break;
             case OPT_QUIET: gflags_quiet = 1; break;
         }
@@ -278,8 +271,6 @@ static void process_options(int ac, char *av[])
         std::exit(EXIT_FAILURE);
     }
 
-    if (!dns_search.empty())
-        create_dns_search_blob();
     init_prng();
     nl_socket = std::make_unique<NLSocket>(io_service);
 
