@@ -54,6 +54,8 @@ v6 <DUID> <IAID> <address> [lifetime=value]
 v6 <DUID> <IAID> <address> [lifetime=value]
 v6 <DUID> <IAID> <address> [lifetime=value]
 
+v4 <MAC> <address> [lifetime=value]
+
 */
 
 struct cfg_parse_state {
@@ -61,6 +63,7 @@ struct cfg_parse_state {
     void newline() {
         duid.clear();
         iaid.clear();
+        macaddr.clear();
         v4_addr.clear();
         v6_addr.clear();
     }
@@ -69,6 +72,7 @@ struct cfg_parse_state {
 
     std::string duid;
     std::string iaid;
+    std::string macaddr;
     std::string v4_addr;
     std::string v6_addr;
     std::string default_lifetime;
@@ -105,6 +109,13 @@ using baia6 = boost::asio::ip::address_v6;
     }
     action DnsSearchEn { dns_search.emplace_back(std::string(cps.st, p - cps.st)); }
     action DefLifeEn { cps.default_lifetime = std::string(cps.st, p - cps.st); }
+    action MacAddrEn { cps.macaddr = std::string(cps.st, p - cps.st); }
+    action V4EntryEn {
+        auto r = emplace_dhcp_state(std::move(cps.macaddr), cps.v4_addr,
+                                    nk::str_to_u32(cps.default_lifetime));
+        if (!r)
+            fmt::print(stderr, "Bad IPv4 address at line {}: {}", linenum, cps.v4_addr);
+    }
     action V6EntryEn {
         auto r = emplace_dhcp_state(std::move(cps.duid), nk::str_to_u32(cps.iaid),
                                     cps.v6_addr, nk::str_to_u32(cps.default_lifetime));
@@ -114,16 +125,19 @@ using baia6 = boost::asio::ip::address_v6;
 
     duid = (xdigit+ | (xdigit{2} ('-' xdigit{2})*)+) >St %DuidEn;
     iaid = digit+ >St %IaidEn;
+    macaddr = ((xdigit{2} ':'){5} xdigit{2}) >St %MacAddrEn;
     v4_addr = (digit{1,3} | '.')+ >St %V4AddrEn;
     v6_addr = (xdigit{1,4} | ':')+ >St %V6AddrEn;
 
     comment = space* ('//' any*)?;
-    dns_server = space* 'dns_server' space+ (v4_addr | v6_addr) %DnsServerEn space*;
-    dns_search = space* 'dns_search' space+ graph+ >St %DnsSearchEn space*;
-    default_lifetime = space* 'default_lifetime' space+ digit+ >St %DefLifeEn space*;
-    v6_entry = space* 'v6' space+ duid space+ iaid space+ v6_addr space*;
+    dns_server = space* 'dns_server' space+ (v4_addr | v6_addr) %DnsServerEn comment;
+    dns_search = space* 'dns_search' space+ graph+ >St %DnsSearchEn comment;
+    default_lifetime = space* 'default_lifetime' space+ digit+ >St %DefLifeEn comment;
+    v4_entry = space* 'v4' space+ macaddr space+ v4_addr comment;
+    v6_entry = space* 'v6' space+ duid space+ iaid space+ v6_addr comment;
 
-    main := comment | dns_server | dns_search | default_lifetime | v6_entry %V6EntryEn;
+    main := comment | dns_server | dns_search | default_lifetime
+          | v6_entry %V6EntryEn | v4_entry %V4EntryEn;
 }%%
 
 %% write data;
