@@ -3,8 +3,8 @@
 
 #include <boost/asio.hpp>
 
-struct iaid_mapping {
-    iaid_mapping(uint32_t iaid_, const boost::asio::ip::address_v6 &addr_, uint32_t lifetime_)
+struct dhcpv6_entry {
+    dhcpv6_entry(uint32_t iaid_, const boost::asio::ip::address_v6 &addr_, uint32_t lifetime_)
         : address(addr_), iaid(iaid_), lifetime(lifetime_) {}
     boost::asio::ip::address_v6 address;
     uint32_t iaid;
@@ -18,11 +18,33 @@ struct dhcpv4_entry {
     uint32_t lifetime;
 };
 
-bool emplace_dhcp_state(std::string &&duid, uint32_t iaid, const std::string &v6_addr,
-                        uint32_t default_lifetime);
-bool emplace_dhcp_state(std::string &&macaddr, const std::string &v4_addr,
-                        uint32_t default_lifetime);
-const iaid_mapping* query_dhcp_state(const std::string &duid, uint32_t iaid);
+void create_blobs();
+bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&duid,
+                        uint32_t iaid, const std::string &v6_addr, uint32_t default_lifetime);
+bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&macaddr,
+                        const std::string &v4_addr, uint32_t default_lifetime);
+bool emplace_dns_server(size_t linenum, const std::string &interface,
+                        const std::string &addr, bool is_v4);
+bool emplace_ntp_server(size_t linenum, const std::string &interface,
+                        const std::string &addr, bool is_v4);
+bool emplace_subnet(size_t linenum, const std::string &interface, const std::string &addr);
+bool emplace_gateway(size_t linenum, const std::string &interface, const std::string &addr);
+bool emplace_broadcast(size_t linenum, const std::string &interface, const std::string &addr);
+bool emplace_dns_search(size_t linenum, const std::string &interface, std::string &&label);
+const dhcpv6_entry* query_dhcp_state(const std::string &interface, const std::string &duid,
+                                     uint32_t iaid);
+const dhcpv4_entry* query_dhcp_state(const std::string &interface, const uint8_t *hwaddr);
+const std::vector<boost::asio::ip::address_v6> &query_dns6_servers(const std::string &interface);
+const std::vector<boost::asio::ip::address_v4> &query_dns4_servers(const std::string &interface);
+const std::vector<uint8_t> &query_dns6_search_blob(const std::string &interface);
+const std::vector<boost::asio::ip::address_v6> &query_ntp6_servers(const std::string &interface);
+const std::vector<boost::asio::ip::address_v4> &query_ntp4_servers(const std::string &interface);
+const std::vector<uint8_t> &query_ntp6_fqdns_blob(const std::string &interface);
+const std::vector<boost::asio::ip::address_v6> &query_ntp6_multicasts(const std::string &interface);
+const std::vector<boost::asio::ip::address_v4> &query_gateway(const std::string &interface);
+const boost::asio::ip::address_v4 &query_subnet(const std::string &interface);
+const boost::asio::ip::address_v4 &query_broadcast(const std::string &interface);
+const std::vector<std::string> &query_dns_search(const std::string &interface);
 
 #endif
 

@@ -232,7 +232,7 @@ private:
         bool use_rapid_commit:1;
     };
 
-    void emit_address(const d6msg_state &d6s, std::ostream &os, const iaid_mapping *v);
+    void emit_address(const d6msg_state &d6s, std::ostream &os, const dhcpv6_entry *v);
     bool attach_address_info(const d6msg_state &d6s, std::ostream &os);
     void attach_dns_ntp_info(const d6msg_state &d6s, std::ostream &os);
     void write_response_header(const d6msg_state &d6s, std::ostream &os, dhcp6_msgtype mtype);

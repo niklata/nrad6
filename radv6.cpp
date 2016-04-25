@@ -50,9 +50,6 @@ extern "C" {
 #include "nk/net_checksum.h"
 }
 
-extern std::vector<boost::asio::ip::address_v6> dns6_servers;
-extern std::vector<uint8_t> dns_search_blob;
-
 /* XXX: Configuration options:
  *
  * is_router = false :: Can we forward packets to/from the interface?
@@ -522,24 +519,35 @@ void RA6Listener::send_advert()
         }
     }
 
-    if (dns6_servers.size()) {
-        ra6_dns.length(dns6_servers.size());
+    const std::vector<boost::asio::ip::address_v6> *dns6_servers{nullptr};
+    const std::vector<uint8_t> *dns_search_blob{nullptr};
+    try {
+        const auto tt = query_dns6_servers(ifname_);
+        dns6_servers = &tt;
+    } catch (const std::runtime_error &) { }
+    try {
+        const auto tt = query_dns6_search_blob(ifname_);
+        dns_search_blob = &tt;
+    } catch (const std::runtime_error &) { }
+
+    if (dns6_servers && dns6_servers->size()) {
+        ra6_dns.length(dns6_servers->size());
         ra6_dns.lifetime(advi_s_max_ * 2);
         csum = net_checksum161c_add(csum, net_checksum161c(&ra6_dns,
                                                            sizeof ra6_dns));
-        pktl += sizeof ra6_dns + 16 * dns6_servers.size();
+        pktl += sizeof ra6_dns + 16 * dns6_servers->size();
     }
 
     size_t dns_search_slack = 0;
-    if (dns_search_blob.size()) {
-        dns_search_slack = ra6_dsrch.length(dns_search_blob.size());
+    if (dns_search_blob && dns_search_blob->size()) {
+        dns_search_slack = ra6_dsrch.length(dns_search_blob->size());
         ra6_dsrch.lifetime(advi_s_max_ * 2);
         csum = net_checksum161c_add
             (csum, net_checksum161c(&ra6_dsrch, sizeof ra6_dsrch));
         csum = net_checksum161c_add
-            (csum, net_checksum161c(dns_search_blob.data(),
-                                    dns_search_blob.size()));
-        pktl += sizeof ra6_dsrch + dns_search_blob.size() + dns_search_slack;
+            (csum, net_checksum161c(dns_search_blob->data(),
+                                    dns_search_blob->size()));
+        pktl += sizeof ra6_dsrch + dns_search_blob->size() + dns_search_slack;
     }
 
     auto llab = ba::ip::address_v6::any().to_bytes();
@@ -548,9 +556,11 @@ void RA6Listener::send_advert()
     csum = net_checksum161c_add(csum, net_checksum161c(&dstb, sizeof dstb));
     csum = net_checksum161c_add(csum, net_checksum161c(&pktl, sizeof pktl));
     csum = net_checksum161c_add(csum, net_checksum161c(&icmp_nexthdr, 1));
-    for (const auto &i: dns6_servers) {
-        auto db = i.to_bytes();
-        csum = net_checksum161c_add(csum, net_checksum161c(&db, sizeof db));
+    if (dns6_servers) {
+        for (const auto &i: *dns6_servers) {
+            auto db = i.to_bytes();
+            csum = net_checksum161c_add(csum, net_checksum161c(&db, sizeof db));
+        }
     }
     icmp_hdr.checksum(csum);
 
@@ -559,17 +569,17 @@ void RA6Listener::send_advert()
     os << icmp_hdr << ra6adv_hdr << ra6_slla << ra6_mtu;
     for (const auto &i: ra6_pfxs)
         os << i;
-    if (dns6_servers.size()) {
+    if (dns6_servers && dns6_servers->size()) {
         os << ra6_dns;
-        for (const auto &i: dns6_servers) {
+        for (const auto &i: *dns6_servers) {
             auto b6 = i.to_bytes();
             for (const auto &j: b6)
                 os << j;
         }
     }
-    if (dns_search_blob.size()) {
+    if (dns_search_blob && dns_search_blob->size()) {
         os << ra6_dsrch;
-        for (const auto &i: dns_search_blob)
+        for (const auto &i: *dns_search_blob)
             os << i;
         uint8_t zerob(0);
         for (size_t i = 0; i < dns_search_slack; ++i)

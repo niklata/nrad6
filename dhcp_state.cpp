@@ -6,42 +6,396 @@
 using baia6 = boost::asio::ip::address_v6;
 using baia4 = boost::asio::ip::address_v4;
 
-static std::unordered_multimap<std::string, std::unique_ptr<iaid_mapping>> duid_mapping;
-static std::unordered_map<std::string, std::unique_ptr<dhcpv4_entry>> macaddr_mapping;
-
-bool emplace_dhcp_state(std::string &&duid, uint32_t iaid, const std::string &v6_addr,
-                        uint32_t default_lifetime)
+struct interface_data
 {
+    std::unordered_multimap<std::string, std::unique_ptr<dhcpv6_entry>> duid_mapping;
+    std::unordered_map<std::string, std::unique_ptr<dhcpv4_entry>> macaddr_mapping;
+    std::vector<boost::asio::ip::address_v4> gateway;
+    std::vector<boost::asio::ip::address_v6> dns6_servers;
+    std::vector<boost::asio::ip::address_v4> dns4_servers;
+    std::vector<boost::asio::ip::address_v6> ntp6_servers;
+    std::vector<boost::asio::ip::address_v4> ntp4_servers;
+    std::vector<boost::asio::ip::address_v6> ntp6_multicasts;
+    std::vector<std::string> dns_search;
+    std::vector<std::string> ntp6_fqdns;
+    boost::asio::ip::address_v4 subnet;
+    boost::asio::ip::address_v4 broadcast;
+    std::vector<uint8_t> dns_search_blob;
+    std::vector<uint8_t> ntp6_fqdns_blob;
+};
+
+static std::unordered_map<std::string, interface_data> interface_state;
+
+// Performs DNS label wire encoding cf RFC1035 3.1
+// Allocates memory frequently in order to make correctness easier to
+// verify, but at least in this program, it will called only at
+// reconfiguration.
+static std::vector<uint8_t> dns_label(const std::string &ds)
+{
+    std::vector<uint8_t> ret;
+    std::vector<std::pair<size_t, size_t>> locs;
+
+    if (ds.size() <= 0)
+        return ret;
+
+    // First we build up a list of label start/end offsets.
+    size_t s=0, idx=0;
+    bool in_label(false);
+    for (const auto &i: ds) {
+        if (i == '.') {
+            if (in_label) {
+                locs.emplace_back(std::make_pair(s, idx));
+                in_label = false;
+            } else {
+                throw std::runtime_error("malformed input");
+            }
+        } else {
+            if (!in_label) {
+                s = idx;
+                in_label = true;
+            }
+        }
+        ++idx;
+    }
+    // We don't demand a trailing dot.
+    if (in_label) {
+        locs.emplace_back(std::make_pair(s, idx));
+        in_label = false;
+    }
+
+    // Now we just need to attach the label length octet followed
+    // by the label contents.
+    for (const auto &i: locs) {
+        auto len = i.second - i.first;
+        if (len > 63)
+            throw std::runtime_error("label too long");
+        ret.push_back(len);
+        for (size_t j = i.first; j < i.second; ++j)
+            ret.push_back(ds[j]);
+    }
+    // Terminating zero length label.
+    if (ret.size())
+        ret.push_back(0);
+    if (ret.size() > 255)
+        throw std::runtime_error("domain name too long");
+    return ret;
+}
+
+static void create_dns_search_blob(std::vector<std::string> &dns_search,
+                                   std::vector<uint8_t> &dns_search_blob)
+{
+    dns_search_blob.clear();
+    for (const auto &dnsname: dns_search) {
+        std::vector<uint8_t> lbl;
+        try {
+            lbl = dns_label(dnsname);
+        } catch (const std::runtime_error &e) {
+            fmt::print(stderr, "labelizing {} failed: {}\n", dnsname, e.what());
+            continue;
+        }
+        dns_search_blob.insert(dns_search_blob.end(),
+                               std::make_move_iterator(lbl.begin()),
+                               std::make_move_iterator(lbl.end()));
+    }
+    // See if the search blob size is too large to encode in a RA
+    // dns search option.
+    if (dns_search_blob.size() > 8 * 254)
+        throw std::runtime_error("dns search list is too long");
+    dns_search.clear();
+}
+
+// Different from the dns search blob because we pre-include the
+// suboption headers.
+static void create_ntp6_fqdns_blob(std::vector<std::string> &ntp_fqdns,
+                            std::vector<uint8_t> &ntp6_fqdns_blob)
+{
+    ntp6_fqdns_blob.clear();
+    for (const auto &ntpname: ntp_fqdns) {
+        std::vector<uint8_t> lbl;
+        try {
+            lbl = dns_label(ntpname);
+        } catch (const std::runtime_error &e) {
+            fmt::print(stderr, "labelizing {} failed: {}\n", ntpname, e.what());
+            continue;
+        }
+        ntp6_fqdns_blob.push_back(0);
+        ntp6_fqdns_blob.push_back(3);
+        uint16_t lblsize = lbl.size();
+        ntp6_fqdns_blob.push_back(lblsize >> 8);
+        ntp6_fqdns_blob.push_back(lblsize & 0xff);
+        ntp6_fqdns_blob.insert(ntp6_fqdns_blob.end(),
+                               std::make_move_iterator(lbl.begin()),
+                               std::make_move_iterator(lbl.end()));
+    }
+}
+
+void create_blobs()
+{
+    for (auto &i: interface_state) {
+        create_dns_search_blob(i.second.dns_search, i.second.dns_search_blob);
+        create_ntp6_fqdns_blob(i.second.ntp6_fqdns, i.second.ntp6_fqdns_blob);
+    }
+}
+
+bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&duid,
+                        uint32_t iaid, const std::string &v6_addr, uint32_t default_lifetime)
+{
+    auto si = interface_state.find(interface);
+    if (interface.empty() || si == interface_state.end()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
     boost::system::error_code ec;
     auto v6a = baia6::from_string(v6_addr, ec);
-    if (ec) return false;
+    if (ec) {
+        fmt::print(stderr, "Bad IPv6 address at line {}: {}\n", linenum, v6_addr);
+        return false;
+    }
     fmt::print("STATEv6: {} {} {} {}\n", duid, iaid, v6_addr, default_lifetime);
-    duid_mapping.emplace
+    si->second.duid_mapping.emplace
         (std::make_pair(std::move(duid),
-                        std::make_unique<iaid_mapping>(iaid, v6a, default_lifetime)));
+                        std::make_unique<dhcpv6_entry>(iaid, v6a, default_lifetime)));
     return true;
 }
 
-bool emplace_dhcp_state(std::string &&macaddr, const std::string &v4_addr,
-                        uint32_t default_lifetime)
+bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&macaddr,
+                        const std::string &v4_addr, uint32_t default_lifetime)
 {
+    auto si = interface_state.find(interface);
+    if (interface.empty() || si == interface_state.end()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
     boost::system::error_code ec;
     auto v4a = baia4::from_string(v4_addr, ec);
-    if (ec) return false;
+    if (ec) {
+        fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, v4_addr);
+        return false;
+    }
     fmt::print("STATEv4: {} {} {}\n", macaddr, v4_addr, default_lifetime);
-    macaddr_mapping.emplace
+    si->second.macaddr_mapping.emplace
         (std::make_pair(std::move(macaddr),
                         std::make_unique<dhcpv4_entry>(v4a, default_lifetime)));
     return true;
 }
 
-const iaid_mapping *query_dhcp_state(const std::string &duid, uint32_t iaid)
+bool emplace_dns_server(size_t linenum, const std::string &interface,
+                        const std::string &addr, bool is_v4)
 {
-    auto f = duid_mapping.equal_range(duid);
+    if (interface.empty()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return false;
+    boost::system::error_code ec;
+    if (is_v4) {
+        auto v4a = boost::asio::ip::address_v4::from_string(addr, ec);
+        if (!ec) {
+            si->second.dns4_servers.emplace_back(std::move(v4a));
+            return true;
+        } else
+            fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, addr);
+    } else {
+        auto v6a = boost::asio::ip::address_v6::from_string(addr, ec);
+        if (!ec) {
+            si->second.dns6_servers.emplace_back(std::move(v6a));
+            return true;
+        } else
+            fmt::print(stderr, "Bad IPv6 address at line {}: {}\n", linenum, addr);
+    }
+    return false;
+}
+
+bool emplace_ntp_server(size_t linenum, const std::string &interface,
+                        const std::string &addr, bool is_v4)
+{
+    if (interface.empty()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return false;
+    boost::system::error_code ec;
+    if (is_v4) {
+        auto v4a = boost::asio::ip::address_v4::from_string(addr, ec);
+        if (!ec) {
+            si->second.ntp4_servers.emplace_back(std::move(v4a));
+            return true;
+        } else
+            fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, addr);
+    } else {
+        auto v6a = boost::asio::ip::address_v6::from_string(addr, ec);
+        if (!ec) {
+            si->second.ntp6_servers.emplace_back(std::move(v6a));
+            return true;
+        } else
+            fmt::print(stderr, "Bad IPv6 address at line {}: {}\n", linenum, addr);
+    }
+    return false;
+}
+
+bool emplace_subnet(size_t linenum, const std::string &interface, const std::string &addr)
+{
+    if (interface.empty()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return false;
+    boost::system::error_code ec;
+    auto v4a = boost::asio::ip::address_v4::from_string(addr, ec);
+    if (!ec) {
+        si->second.subnet = std::move(v4a);
+        return true;
+    } else
+        fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, addr);
+    return false;
+}
+
+bool emplace_gateway(size_t linenum, const std::string &interface, const std::string &addr)
+{
+    if (interface.empty()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return false;
+    boost::system::error_code ec;
+    auto v4a = boost::asio::ip::address_v4::from_string(addr, ec);
+    if (!ec) {
+        si->second.gateway.emplace_back(std::move(v4a));
+        return true;
+    } else
+        fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, addr);
+    return false;
+}
+
+bool emplace_broadcast(size_t linenum, const std::string &interface, const std::string &addr)
+{
+    if (interface.empty()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return false;
+    boost::system::error_code ec;
+    auto v4a = boost::asio::ip::address_v4::from_string(addr, ec);
+    if (!ec) {
+        si->second.broadcast = std::move(v4a);
+        return true;
+    } else
+        fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, addr);
+    return false;
+}
+
+bool emplace_dns_search(size_t linenum, const std::string &interface, std::string &&label)
+{
+    if (interface.empty()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return false;
+    si->second.dns_search.emplace_back(std::move(label));
+    return true;
+}
+
+const dhcpv6_entry *query_dhcp_state(const std::string &interface, const std::string &duid,
+                                     uint32_t iaid)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return nullptr;
+    auto f = si->second.duid_mapping.equal_range(duid);
     for (auto i = f.first; i != f.second; ++i) {
         if (i->second->iaid == iaid)
             return i->second.get();
     }
     return nullptr;
+}
+
+const dhcpv4_entry* query_dhcp_state(const std::string &interface, const uint8_t *hwaddr)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return nullptr;
+    auto f = si->second.macaddr_mapping.find(std::string(reinterpret_cast<const char *>(hwaddr), 6));
+    return f != si->second.macaddr_mapping.end() ? f->second.get() : nullptr;
+}
+
+const std::vector<boost::asio::ip::address_v6> &query_dns6_servers(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.dns6_servers;
+}
+
+const std::vector<boost::asio::ip::address_v4> &query_dns4_servers(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.dns4_servers;
+}
+
+const std::vector<uint8_t> &query_dns6_search_blob(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.dns_search_blob;
+}
+
+const std::vector<boost::asio::ip::address_v6> &query_ntp6_servers(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.ntp6_servers;
+}
+
+const std::vector<boost::asio::ip::address_v4> &query_ntp4_servers(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.ntp4_servers;
+}
+
+const std::vector<uint8_t> &query_ntp6_fqdns_blob(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.ntp6_fqdns_blob;
+}
+
+const std::vector<boost::asio::ip::address_v6> &query_ntp6_multicasts(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.ntp6_multicasts;
+}
+
+const std::vector<boost::asio::ip::address_v4> &query_gateway(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.gateway;
+}
+
+const boost::asio::ip::address_v4 &query_subnet(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.subnet;
+}
+
+const boost::asio::ip::address_v4 &query_broadcast(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.broadcast;
+}
+
+const std::vector<std::string> &query_dns_search(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.dns_search;
 }
 

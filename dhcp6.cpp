@@ -27,16 +27,6 @@ void D6Listener::attach_bpf(int fd)
     //using_bpf_ = attach_bpf_dhcp6_info(fd, ifname_.c_str());
 }
 
-extern std::vector<boost::asio::ip::address_v6> dns6_servers;
-extern std::vector<std::string> dns_search;
-
-std::vector<boost::asio::ip::address_v6> ntp6_servers;
-std::vector<boost::asio::ip::address_v6> ntp6_multicasts;
-std::vector<std::string> ntp6_fqdns;
-
-std::vector<uint8_t> dns_search_blob;
-std::vector<uint8_t> ntp6_fqdns_blob;
-
 static const char * dhcp6_msgtype_to_string(dhcp6_msgtype m)
 {
     switch (m) {
@@ -89,106 +79,6 @@ static const char * dhcp6_opt_to_string(uint16_t opttype)
     }
 }
 
-// Performs DNS label wire encoding cf RFC1035 3.1
-// Allocates memory frequently in order to make correctness easier to
-// verify, but at least in this program, it will called only at
-// reconfiguration.
-static std::vector<uint8_t> dns_label(const std::string &ds)
-{
-    std::vector<uint8_t> ret;
-    std::vector<std::pair<size_t, size_t>> locs;
-
-    if (ds.size() <= 0)
-        return ret;
-
-    // First we build up a list of label start/end offsets.
-    size_t s=0, idx=0;
-    bool in_label(false);
-    for (const auto &i: ds) {
-        if (i == '.') {
-            if (in_label) {
-                locs.emplace_back(std::make_pair(s, idx));
-                in_label = false;
-            } else {
-                throw std::runtime_error("malformed input");
-            }
-        } else {
-            if (!in_label) {
-                s = idx;
-                in_label = true;
-            }
-        }
-        ++idx;
-    }
-    // We don't demand a trailing dot.
-    if (in_label) {
-        locs.emplace_back(std::make_pair(s, idx));
-        in_label = false;
-    }
-
-    // Now we just need to attach the label length octet followed
-    // by the label contents.
-    for (const auto &i: locs) {
-        auto len = i.second - i.first;
-        if (len > 63)
-            throw std::runtime_error("label too long");
-        ret.push_back(len);
-        for (size_t j = i.first; j < i.second; ++j)
-            ret.push_back(ds[j]);
-    }
-    // Terminating zero length label.
-    if (ret.size())
-        ret.push_back(0);
-    if (ret.size() > 255)
-        throw std::runtime_error("domain name too long");
-    return ret;
-}
-
-void create_dns_search_blob()
-{
-    dns_search_blob.clear();
-    for (const auto &dnsname: dns_search) {
-        std::vector<uint8_t> lbl;
-        try {
-            lbl = dns_label(dnsname);
-        } catch (const std::runtime_error &e) {
-            fmt::print(stderr, "labelizing {} failed: {}\n", dnsname, e.what());
-            continue;
-        }
-        dns_search_blob.insert(dns_search_blob.end(),
-                               std::make_move_iterator(lbl.begin()),
-                               std::make_move_iterator(lbl.end()));
-    }
-    // See if the search blob size is too large to encode in a RA
-    // dns search option.
-    if (dns_search_blob.size() > 8 * 254)
-        throw std::runtime_error("dns search list is too long");
-}
-
-// Different from the dns search blob because we pre-include the
-// suboption headers.
-void create_ntp6_fqdns_blob()
-{
-    ntp6_fqdns_blob.clear();
-    for (const auto &ntpname: ntp6_fqdns) {
-        std::vector<uint8_t> lbl;
-        try {
-            lbl = dns_label(ntpname);
-        } catch (const std::runtime_error &e) {
-            fmt::print(stderr, "labelizing {} failed: {}\n", ntpname, e.what());
-            continue;
-        }
-        ntp6_fqdns_blob.push_back(0);
-        ntp6_fqdns_blob.push_back(3);
-        uint16_t lblsize = lbl.size();
-        ntp6_fqdns_blob.push_back(lblsize >> 8);
-        ntp6_fqdns_blob.push_back(lblsize & 0xff);
-        ntp6_fqdns_blob.insert(ntp6_fqdns_blob.end(),
-                               std::make_move_iterator(lbl.begin()),
-                               std::make_move_iterator(lbl.end()));
-    }
-}
-
 void D6Listener::write_response_header(const d6msg_state &d6s, std::ostream &os,
                                        dhcp6_msgtype mtype)
 {
@@ -210,7 +100,7 @@ void D6Listener::write_response_header(const d6msg_state &d6s, std::ostream &os,
     }
 }
 
-void D6Listener::emit_address(const d6msg_state &d6s, std::ostream &os, const iaid_mapping *v)
+void D6Listener::emit_address(const d6msg_state &d6s, std::ostream &os, const dhcpv6_entry *v)
 {
     dhcp6_opt header;
     header.type(3);
@@ -237,7 +127,7 @@ bool D6Listener::attach_address_info(const d6msg_state &d6s, std::ostream &os)
     // Look through IAs and send IA with assigned address as an option.
     for (const auto &i: d6s.ias) {
         printf("Querying duid='%s' iaid=%u...\n", d6s.client_duid.c_str(), i.iaid);
-        auto x = query_dhcp_state(d6s.client_duid, i.iaid);
+        auto x = query_dhcp_state(ifname_, d6s.client_duid, i.iaid);
         if (x) {
             ret = true;
             fmt::print("Found address: {}\n", x->address.to_string());
@@ -257,6 +147,7 @@ bool D6Listener::attach_address_info(const d6msg_state &d6s, std::ostream &os)
 // see if it is in the opt_req before adding it to the reply.
 void D6Listener::attach_dns_ntp_info(const d6msg_state &d6s, std::ostream &os)
 {
+    const auto dns6_servers = query_dns6_servers(ifname_);
     if ((!d6s.optreq_exists || d6s.optreq_dns) && dns6_servers.size()) {
         dhcp6_opt send_dns;
         send_dns.type(23);
@@ -268,19 +159,22 @@ void D6Listener::attach_dns_ntp_info(const d6msg_state &d6s, std::ostream &os)
                 os << j;
         }
     }
-
+    const auto dns6_search_blob = query_dns6_search_blob(ifname_);
     if ((!d6s.optreq_exists || d6s.optreq_dns_search)
-        && dns_search_blob.size()) {
+        && dns6_search_blob.size()) {
         dhcp6_opt send_dns_search;
         send_dns_search.type(24);
-        send_dns_search.length(dns_search_blob.size());
+        send_dns_search.length(dns6_search_blob.size());
         os << send_dns_search;
-        for (const auto &i: dns_search_blob)
+        for (const auto &i: dns6_search_blob)
             os << i;
     }
-    auto n6s_size = ntp6_servers.size();
-    auto n6m_size = ntp6_multicasts.size();
-    auto n6d_size = ntp6_fqdns_blob.size();
+    const auto ntp6_servers = query_ntp6_servers(ifname_);
+    const auto ntp6_multicasts = query_ntp6_multicasts(ifname_);
+    const auto ntp6_fqdns_blob = query_ntp6_fqdns_blob(ifname_);
+    const auto n6s_size = ntp6_servers.size();
+    const auto n6m_size = ntp6_multicasts.size();
+    const auto n6d_size = ntp6_fqdns_blob.size();
     if ((!d6s.optreq_exists || d6s.optreq_ntp)
         && (n6s_size || n6m_size || n6d_size)) {
         uint16_t len(0);
@@ -363,7 +257,7 @@ void D6Listener::handle_confirm_msg(const d6msg_state &d6s, boost::asio::streamb
     bool all_ok{true};
     for (const auto &i: d6s.ias) {
         printf("Querying duid='%s' iaid=%u...\n", d6s.client_duid.c_str(), i.iaid);
-        auto x = query_dhcp_state(d6s.client_duid, i.iaid);
+        auto x = query_dhcp_state(ifname_, d6s.client_duid, i.iaid);
         if (x) {
             fmt::print("Found a match.\n");
             for (const auto &j: i.ia_na_addrs) {
@@ -471,6 +365,15 @@ void D6Listener::start_receive()
          {
              fmt::print(stderr, "\nbytes_xferred={}\n", bytes_xferred);
              recv_buffer_.commit(bytes_xferred);
+
+             // XXX: This stanza can probably be thrown away.
+             auto seps = sender_endpoint_.address().to_string();
+             const auto seps_ifr = seps.find_last_of('%');
+             if (seps_ifr != std::string::npos) {
+                 auto xx = seps.substr(seps_ifr + 1);
+                 if (xx != ifname_)
+                     throw std::logic_error("ifname doesn't match");
+             }
 
              std::size_t bytes_left = bytes_xferred;
              if (!using_bpf_) {
