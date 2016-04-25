@@ -137,6 +137,18 @@ void create_blobs()
     }
 }
 
+bool emplace_interface(size_t linenum, const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (interface.empty())
+        return false;
+    if (si == interface_state.end()) {
+        interface_state.emplace(std::make_pair(interface, interface_data()));
+        return true;
+    }
+    return false;
+}
+
 bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&duid,
                         uint32_t iaid, const std::string &v6_addr, uint32_t default_lifetime)
 {

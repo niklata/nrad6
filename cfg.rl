@@ -92,7 +92,10 @@ using baia6 = boost::asio::ip::address_v6;
     action V6AddrEn { cps.v6_addr = std::string(cps.st, p - cps.st); }
 
     action DefLifeEn { cps.default_lifetime = std::string(cps.st, p - cps.st); }
-    action InterfaceEn { cps.interface = std::string(cps.st, p - cps.st); }
+    action InterfaceEn {
+        cps.interface = std::string(cps.st, p - cps.st);
+        emplace_interface(linenum, cps.interface);
+    }
     action DnsServerEn {
         const auto is_v4 = !!cps.v4_addr.size();
         emplace_dns_server(linenum, cps.interface, is_v4 ? cps.v4_addr : cps.v6_addr, is_v4);

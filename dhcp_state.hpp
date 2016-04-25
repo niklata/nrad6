@@ -19,6 +19,7 @@ struct dhcpv4_entry {
 };
 
 void create_blobs();
+bool emplace_interface(size_t linenum, const std::string &interface);
 bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&duid,
                         uint32_t iaid, const std::string &v6_addr, uint32_t default_lifetime);
 bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&macaddr,
