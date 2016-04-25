@@ -60,6 +60,7 @@ extern "C" {
 }
 #include "nlsocket.hpp"
 #include "radv6.hpp"
+#include "dhcp4.hpp"
 #include "dhcp_state.hpp"
 
 boost::asio::io_service io_service;
@@ -71,18 +72,12 @@ static bool use_seccomp(false);
 
 std::unique_ptr<NLSocket> nl_socket;
 
-// List of interface names for which we will act as a router.
-static std::vector<std::string> router_interfaces;
-static std::vector<std::unique_ptr<RA6Listener>> listeners;
+static std::vector<std::unique_ptr<RA6Listener>> v6_listeners;
+static std::vector<std::unique_ptr<ClientListener>> v4_listeners;
 
 static std::random_device g_random_secure;
 nk::rng::xorshift64m g_random_prng(0);
 
-extern std::vector<boost::asio::ip::address_v6> ntp6_servers; // XXX
-extern std::vector<boost::asio::ip::address_v6> ntp6_multicasts; // XXX
-extern std::vector<std::string> ntp6_fqdns; // XXX
-
-extern void create_ntp6_fqdns_blob();
 extern void parse_config(const std::string &path);
 
 static void init_prng()
@@ -92,6 +87,29 @@ static void init_prng()
                     std::ref(g_random_secure));
     std::seed_seq seed_seq(std::begin(seed_data), std::end(seed_data));
     g_random_prng.seed(seed_seq);
+}
+
+static void init_listeners()
+{
+    auto ios = &io_service;
+    auto v6l = &v6_listeners;
+    auto v4l = &v4_listeners;
+    bound_interfaces_foreach([ios, v6l, v4l](const std::string &i, bool use_v4, bool use_v6) {
+        if (use_v6) {
+            try {
+                v6l->emplace_back(std::make_unique<RA6Listener>(*ios, i));
+            } catch (const std::out_of_range &exn) {
+                fmt::print(stderr, "Can't bind to v6 interface: {}\n", i);
+            }
+        }
+        if (use_v4) {
+            try {
+                v4l->emplace_back(std::make_unique<ClientListener>(*ios, i));
+            } catch (const boost::system::error_code &) {
+                fmt::print(stderr, "Can't bind to v4 interface: {}\n", i);
+            }
+        }
+    });
 }
 
 static void process_signals()
@@ -202,9 +220,9 @@ enum OpIdx {
 };
 static const option::Descriptor usage[] = {
     { OPT_UNKNOWN,    0,  "",           "", Arg::Unknown,
-        "nrad6 " NRAD6_VERSION ", ipv6 router advertisment and dhcp server.\n"
+        "nrad6 " NRAD6_VERSION ", DHCPv4/DHCPv6 and IPv6 Router Advertisement server.\n"
         "Copyright (c) 2014-2016 Nicholas J. Kain\n"
-        "nrad6 [options] [interface]...\n\nOptions:" },
+        "nrad6 [options] [configfile]...\n\nOptions:" },
     { OPT_HELP,       0, "h",            "help",    Arg::None, "\t-h, \t--help  \tPrint usage and exit." },
     { OPT_VERSION,    0, "v",         "version",    Arg::None, "\t-v, \t--version  \tPrint version and exit." },
     { OPT_BACKGROUND, 0, "b",      "background",    Arg::None, "\t-b, \t--background  \tRun as a background daemon." },
@@ -266,25 +284,21 @@ static void process_options(int ac, char *av[])
             case OPT_QUIET: gflags_quiet = 1; break;
         }
     }
-    for (int i = 0; i < parse.nonOptionsCount(); ++i) {
-        router_interfaces.emplace_back(parse.nonOption(i));
-    }
 
-    if (!router_interfaces.size()) {
-        fmt::print(stderr, "No interfaces have been specified\n");
+    init_prng();
+    if (configfile.size())
+        parse_config(configfile);
+
+    for (int i = 0; i < parse.nonOptionsCount(); ++i)
+        parse_config(parse.nonOption(i));
+
+    if (!bound_interfaces_count()) {
+        fmt::print(stderr, "No interfaces have been bound\n");
         std::exit(EXIT_FAILURE);
     }
 
-    init_prng();
     nl_socket = std::make_unique<NLSocket>(io_service);
-
-    for (const auto &i: router_interfaces) {
-        try {
-            listeners.emplace_back(std::make_unique<RA6Listener>(io_service, i));
-        } catch (const std::out_of_range &exn) {}
-    }
-
-    parse_config(configfile);
+    init_listeners();
 
     if (gflags_detach && daemon(0,0)) {
         fmt::print(stderr, "detaching fork failed\n");

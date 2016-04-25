@@ -49,11 +49,10 @@ void init_client_states_v4(ba::io_service &io_service)
     client_states_v4 = std::make_unique<ClientStates>(io_service);
 }
 
-ClientListener::ClientListener(ba::io_service &io_service,
-                               const ba::ip::udp::endpoint &endpoint,
-                               const std::string &ifname)
+ClientListener::ClientListener(ba::io_service &io_service, const std::string &ifname)
  : socket_(io_service), ifname_(ifname)
 {
+    const auto endpoint = ba::ip::udp::endpoint(ba::ip::address_v4::any(), 67);
     socket_.open(endpoint.protocol());
     socket_.set_option(ba::ip::udp::socket::broadcast(true));
     socket_.set_option(ba::ip::udp::socket::do_not_route(true));

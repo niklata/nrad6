@@ -138,9 +138,7 @@ void init_client_states_v4(boost::asio::io_service &io_service);
 class ClientListener
 {
 public:
-    ClientListener(boost::asio::io_service &io_service,
-                   const boost::asio::ip::udp::endpoint &endpoint,
-                   const std::string &ifname);
+    ClientListener(boost::asio::io_service &io_service, const std::string &ifname);
     ClientListener(const ClientListener &) = delete;
     ClientListener &operator=(const ClientListener &) = delete;
 private:

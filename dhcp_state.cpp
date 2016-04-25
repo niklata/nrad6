@@ -8,6 +8,7 @@ using baia4 = boost::asio::ip::address_v4;
 
 struct interface_data
 {
+    interface_data(bool use_v4, bool use_v6) : use_dhcpv4(use_v4), use_dhcpv6(use_v6) {}
     std::unordered_multimap<std::string, std::unique_ptr<dhcpv6_entry>> duid_mapping;
     std::unordered_map<std::string, std::unique_ptr<dhcpv4_entry>> macaddr_mapping;
     std::vector<boost::asio::ip::address_v4> gateway;
@@ -22,6 +23,8 @@ struct interface_data
     boost::asio::ip::address_v4 broadcast;
     std::vector<uint8_t> dns_search_blob;
     std::vector<uint8_t> ntp6_fqdns_blob;
+    bool use_dhcpv4:1;
+    bool use_dhcpv6:1;
 };
 
 static std::unordered_map<std::string, interface_data> interface_state;
@@ -137,16 +140,29 @@ void create_blobs()
     }
 }
 
+bool emplace_bind(size_t linenum, std::string &&interface, bool is_v4)
+{
+    auto si = interface_state.find(interface);
+    if (interface.empty())
+        return false;
+    if (si == interface_state.end()) {
+        interface_state.emplace(std::make_pair(std::move(interface),
+                                               interface_data(is_v4, !is_v4)));
+        return true;
+    }
+    return false;
+}
+
 bool emplace_interface(size_t linenum, const std::string &interface)
 {
     auto si = interface_state.find(interface);
     if (interface.empty())
         return false;
     if (si == interface_state.end()) {
-        interface_state.emplace(std::make_pair(interface, interface_data()));
-        return true;
+        fmt::print(stderr, "interface specified at line {} is not bound\n", linenum);
+        return false;
     }
-    return false;
+    return true;
 }
 
 bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&duid,
@@ -409,5 +425,16 @@ const std::vector<std::string> &query_dns_search(const std::string &interface)
     auto si = interface_state.find(interface);
     if (si == interface_state.end()) throw std::runtime_error("no such interface");
     return si->second.dns_search;
+}
+
+size_t bound_interfaces_count()
+{
+    return interface_state.size();
+}
+
+void bound_interfaces_foreach(std::function<void(const std::string&, bool, bool)> fn)
+{
+    for (const auto &i: interface_state)
+        fn(i.first, i.second.use_dhcpv4, i.second.use_dhcpv6);
 }
 

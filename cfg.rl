@@ -91,6 +91,8 @@ using baia6 = boost::asio::ip::address_v6;
     action V4AddrEn { cps.v4_addr = std::string(cps.st, p - cps.st); }
     action V6AddrEn { cps.v6_addr = std::string(cps.st, p - cps.st); }
 
+    action Bind4En { emplace_bind(linenum, std::string(cps.st, p - cps.st), true); }
+    action Bind6En { emplace_bind(linenum, std::string(cps.st, p - cps.st), false); }
     action DefLifeEn { cps.default_lifetime = std::string(cps.st, p - cps.st); }
     action InterfaceEn {
         cps.interface = std::string(cps.st, p - cps.st);
@@ -132,6 +134,8 @@ using baia6 = boost::asio::ip::address_v6;
     v6_addr = (xdigit{1,4} | ':')+ >St %V6AddrEn;
 
     comment = space* ('//' any*)?;
+    bind4 = space* 'bind4' (space+ alnum+ >St %Bind4En)+ comment;
+    bind6 = space* 'bind6' (space+ alnum+ >St %Bind6En)+ comment;
     default_lifetime = space* 'default_lifetime' space+ digit+ >St %DefLifeEn comment;
     interface = space* 'interface' space+ alnum+ >St %InterfaceEn comment;
     dns_server = space* 'dns_server' space+ (v4_addr | v6_addr) %DnsServerEn comment;
@@ -143,8 +147,8 @@ using baia6 = boost::asio::ip::address_v6;
     v4_entry = space* 'v4' space+ macaddr space+ v4_addr comment;
     v6_entry = space* 'v6' space+ duid space+ iaid space+ v6_addr comment;
 
-    main := comment | default_lifetime | interface | dns_server | dns_search
-          | ntp_server | subnet | gateway | broadcast | v6_entry %V6EntryEn
+    main := comment | bind4 | bind6 | default_lifetime | interface | dns_server
+          | dns_search | ntp_server | subnet | gateway | broadcast | v6_entry %V6EntryEn
           | v4_entry %V4EntryEn;
 }%%
 
@@ -204,6 +208,6 @@ void parse_config(const std::string &path)
         }
     }
     create_blobs();
-    std::exit(EXIT_SUCCESS);
+    //std::exit(EXIT_SUCCESS);
 }
 

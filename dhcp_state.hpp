@@ -19,6 +19,7 @@ struct dhcpv4_entry {
 };
 
 void create_blobs();
+bool emplace_bind(size_t linenum, std::string &&interface, bool is_v4);
 bool emplace_interface(size_t linenum, const std::string &interface);
 bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&duid,
                         uint32_t iaid, const std::string &v6_addr, uint32_t default_lifetime);
@@ -46,6 +47,8 @@ const std::vector<boost::asio::ip::address_v4> &query_gateway(const std::string 
 const boost::asio::ip::address_v4 &query_subnet(const std::string &interface);
 const boost::asio::ip::address_v4 &query_broadcast(const std::string &interface);
 const std::vector<std::string> &query_dns_search(const std::string &interface);
+size_t bound_interfaces_count();
+void bound_interfaces_foreach(std::function<void(const std::string&, bool, bool)> fn);
 
 #endif
 
