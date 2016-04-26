@@ -92,6 +92,7 @@ ClientListener::ClientListener(ba::io_service &io_service, const std::string &if
             exit(EXIT_FAILURE);
         }
         local_ip_ = ba::ip::address::from_string(lipbuf);
+        fmt::print(stderr, "IP address for {} is {}.\n", ifname, local_ip_.to_string());
         break;
     }
     freeifaddrs(ifaddr);
@@ -99,8 +100,6 @@ ClientListener::ClientListener(ba::io_service &io_service, const std::string &if
         fmt::print(stderr, "interface ({}) has no IP address\n", ifname);
         exit(EXIT_FAILURE);
     }
-
-    fmt::print("XXX: dhcpv4 listening on {}\n", ifname);
 
     start_receive();
 }

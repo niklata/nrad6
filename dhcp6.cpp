@@ -1,3 +1,6 @@
+#include <net/if.h>
+#include <sys/socket.h>
+#include <ifaddrs.h>
 #include <nk/format.hpp>
 #include "multicast6.hpp"
 #include "dhcp6.hpp"
@@ -18,6 +21,31 @@ D6Listener::D6Listener(ba::io_service &io_service,
     attach_multicast(socket_.native(), ifname, mc6_alldhcp_ras);
     attach_bpf(socket_.native());
     socket_.bind(lla_ep);
+
+    struct ifaddrs *ifaddr, *ifa;
+    if (getifaddrs(&ifaddr) == -1) {
+        fmt::print(stderr, "failed to get list of interface ips: {}\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr)
+            continue;
+        if (strcmp(ifa->ifa_name, ifname.c_str()))
+            continue;
+        if (ifa->ifa_addr->sa_family != AF_INET6)
+            continue;
+        char lipbuf[INET6_ADDRSTRLEN];
+        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr,
+                       lipbuf, sizeof lipbuf)) {
+            fmt::print(stderr, "failed to parse IP for interface ({}): {}\n",
+                       ifname, strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        local_ip_ = ba::ip::address_v6::from_string(lipbuf);
+        fmt::print(stderr, "IP address for {} is {}.\n", ifname, local_ip_.to_string());
+        break;
+    }
+    freeifaddrs(ifaddr);
 
     start_receive();
 }

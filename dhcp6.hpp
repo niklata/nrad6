@@ -251,6 +251,7 @@ private:
     char macaddr_[6];
     boost::asio::streambuf recv_buffer_;
     boost::asio::ip::udp::endpoint sender_endpoint_;
+    boost::asio::ip::address_v6 local_ip_;
 
     size_t bytes_left_dec(d6msg_state &d6s, std::size_t &bytes_left, size_t v);
 };
