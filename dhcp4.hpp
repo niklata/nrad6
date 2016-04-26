@@ -143,7 +143,7 @@ public:
     ClientListener &operator=(const ClientListener &) = delete;
 private:
     void start_receive();
-    uint64_t getNowTs(void) const;
+    int64_t getNowTs(void) const;
     void dhcpmsg_init(dhcpmsg &dm, char type, uint32_t xid) const;
     uint32_t local_ip() const;
     std::string ipStr(uint32_t ip) const;
@@ -153,6 +153,7 @@ private:
     void send_reply(const dhcpmsg &dm);
     bool iplist_option(dhcpmsg &reply, std::string &iplist, uint8_t code,
                        const std::vector<boost::asio::ip::address_v4> &addrs);
+    bool allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign);
     bool create_reply(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign);
     void reply_discover();
     void reply_request(bool is_direct);

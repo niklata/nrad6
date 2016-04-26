@@ -56,7 +56,7 @@ v4 <MAC> <address> [lifetime=value]
 */
 
 struct cfg_parse_state {
-    cfg_parse_state() : st(nullptr), cs(0), default_lifetime("7200") {}
+    cfg_parse_state() : st(nullptr), cs(0), default_lifetime(7200) {}
     void newline() {
         duid.clear();
         iaid.clear();
@@ -74,8 +74,8 @@ struct cfg_parse_state {
     std::string v4_addr;
     std::string v4_addr2;
     std::string v6_addr;
-    std::string default_lifetime;
     std::string interface;
+    uint32_t default_lifetime;
 };
 
 using baia6 = boost::asio::ip::address_v6;
@@ -95,7 +95,7 @@ using baia6 = boost::asio::ip::address_v6;
 
     action Bind4En { emplace_bind(linenum, std::string(cps.st, p - cps.st), true); }
     action Bind6En { emplace_bind(linenum, std::string(cps.st, p - cps.st), false); }
-    action DefLifeEn { cps.default_lifetime = std::string(cps.st, p - cps.st); }
+    action DefLifeEn { cps.default_lifetime = nk::str_to_u32(std::string(cps.st, p - cps.st)); }
     action InterfaceEn {
         cps.interface = std::string(cps.st, p - cps.st);
         emplace_interface(linenum, cps.interface);
@@ -124,15 +124,16 @@ using baia6 = boost::asio::ip::address_v6;
         cps.v4_addr2 = std::move(cps.v4_addr);
     }
     action DynRangeEn {
-        emplace_dynamic_range(linenum, cps.interface, cps.v4_addr2, cps.v4_addr);
+        emplace_dynamic_range(linenum, cps.interface, cps.v4_addr2, cps.v4_addr,
+                              cps.default_lifetime);
     }
     action V4EntryEn {
         emplace_dhcp_state(linenum, cps.interface, std::move(cps.macaddr), cps.v4_addr,
-                           nk::str_to_u32(cps.default_lifetime));
+                           cps.default_lifetime);
     }
     action V6EntryEn {
         emplace_dhcp_state(linenum, cps.interface, std::move(cps.duid), nk::str_to_u32(cps.iaid),
-                           cps.v6_addr, nk::str_to_u32(cps.default_lifetime));
+                           cps.v6_addr, cps.default_lifetime);
     }
 
     duid = (xdigit+ | (xdigit{2} ('-' xdigit{2})*)+) >St %DuidEn;

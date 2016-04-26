@@ -33,15 +33,16 @@
 #include <sys/socket.h>
 #include <ifaddrs.h>
 #include <nk/format.hpp>
+#include <nk/xorshift.hpp>
 #include "dhcp4.hpp"
 #include "dhcp_state.hpp"
+#include "dynlease.hpp"
 extern "C" {
 #include "options.h"
 }
 
 namespace ba = boost::asio;
-
-//extern std::unique_ptr<LeaseStore> gLeaseStore;
+extern nk::rng::xorshift64m g_random_prng;
 
 static std::unique_ptr<ClientStates> client_states_v4;
 void init_client_states_v4(ba::io_service &io_service)
@@ -95,6 +96,8 @@ ClientListener::ClientListener(ba::io_service &io_service, const std::string &if
         fmt::print(stderr, "interface ({}) has no IP address\n", ifname);
         exit(EXIT_FAILURE);
     }
+
+    fmt::print("XXX: dhcpv4 listening on {}\n", ifname);
 
     start_receive();
 }
@@ -168,10 +171,11 @@ std::string ClientListener::ipStr(uint32_t ip) const
     return std::string(addrbuf);
 }
 
-uint64_t ClientListener::getNowTs(void) const {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec;
+int64_t ClientListener::getNowTs(void) const {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts))
+        throw std::runtime_error("clock_gettime failed");
+    return ts.tv_sec;
 }
 
 void ClientListener::send_reply(const dhcpmsg &reply)
@@ -187,17 +191,6 @@ void ClientListener::send_reply(const dhcpmsg &reply)
     else
         send_reply_do(reply, SendReplyType::Broadcast);
 }
-
-#if 0
-function common_reply(dm, lip, rip, mac, cid, do_assign)
-  -- Check for static assignments for the local interface.
-  -- If one exists, then send ip and use static lease time (84000).
-  -- If not and do_assign == true, assign a dynamic IP from range (.100 to .250)
-  --    and use dynamic lease time (900).
-  -- set options: broadcast, routers, dns4, ntp4, domain_name, subnet
-  return true
-end
-#endif
 
 bool ClientListener::iplist_option(dhcpmsg &reply, std::string &iplist, uint8_t code,
                                    const std::vector<boost::asio::ip::address_v4> &addrs)
@@ -215,16 +208,58 @@ bool ClientListener::iplist_option(dhcpmsg &reply, std::string &iplist, uint8_t 
         return true;
 }
 
+bool ClientListener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign)
+{
+    using baia4 = boost::asio::ip::address_v4;
+    if (!query_use_dynamic_v4(ifname_))
+        return false;
+
+    // IP is randomly selected from the dynamic range.
+    uint32_t dynamic_lifetime;
+    const auto dr = query_dynamic_range(ifname_, dynamic_lifetime);
+    const auto expire_time = getNowTs() + dynamic_lifetime;
+    const auto al = dr.first.to_ulong();
+    const auto ah = dr.second.to_ulong();
+    const auto ar = ah - al;
+    std::uniform_int_distribution<> dist(0, ar);
+    unsigned long rqs = dist(g_random_prng);
+
+    // OK, here we have bisected our range using rqs.
+    // [al .. ah] => [al .. rqs .. ah]
+    // So we scan from [rqs, ah], taking the first empty slot.
+    // If no success, scan from [al, rqs), taking the first empty slot.
+    // If no success, then all IPs are taken, so return false.
+    for (unsigned long i = al + rqs; i <= ah; ++i) {
+        const auto matched = do_assign ? dynlease_add(ifname_, baia4(i), hwaddr, expire_time)
+                                       : dynlease_exists(ifname_, baia4(i), hwaddr);
+        if (matched) {
+            reply.yiaddr = htonl(i);
+            add_u32_option(&reply, DCODE_LEASET, htonl(dynamic_lifetime));
+            return true;
+        }
+    }
+    for (unsigned long i = al; i < al + rqs; ++i) {
+        const auto matched = do_assign ? dynlease_add(ifname_, baia4(i), hwaddr, expire_time)
+                                       : dynlease_exists(ifname_, baia4(i), hwaddr);
+        if (matched) {
+            reply.yiaddr = htonl(i);
+            add_u32_option(&reply, DCODE_LEASET, htonl(dynamic_lifetime));
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ClientListener::create_reply(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign)
 {
     auto dv4s = query_dhcp_state(ifname_, hwaddr);
     if (!dv4s) {
-        // XXX: Assign a dynamic IP from dynamic range and use the
-        //      dynamic lease time.
-        return false;
+        if (!allot_dynamic_ip(reply, hwaddr, do_assign))
+            return false;
+    } else {
+        reply.yiaddr = htonl(dv4s->address.to_ulong());
+        add_u32_option(&reply, DCODE_LEASET, htonl(dv4s->lifetime));
     }
-    reply.yiaddr = htonl(dv4s->address.to_ulong());
-    add_u32_option(&reply, DCODE_LEASET, htonl(dv4s->lifetime));
     try {
         add_option_subnet_mask(&reply, htonl(query_subnet(ifname_).to_ulong()));
         add_option_broadcast(&reply, htonl(query_broadcast(ifname_).to_ulong()));
@@ -258,8 +293,6 @@ void ClientListener::reply_request(bool is_direct)
     dhcpmsg reply;
     dhcpmsg_init(reply, DHCPACK, dhcpmsg_.xid);
     if (create_reply(reply, dhcpmsg_.chaddr, true)) {
-//        gLeaseStore->addLease(local_ip_.to_string(), dhcpmsg_.chaddr, leaseip,
-//                              getNowTs() + get_option_leasetime(&reply));
         send_reply(reply);
     }
     client_states_v4->stateKill(dhcpmsg_.xid, dhcpmsg_.chaddr);
@@ -296,16 +329,14 @@ void ClientListener::reply_inform()
 }
 
 void ClientListener::do_release() {
-//    std::string lip =
-//        gLeaseStore->getLease(socket_.local_endpoint().address().to_string(),
-//                              dhcpmsg_.chaddr);
-//    if (lip != remote_endpoint_.address().to_string()) {
-//        fmt::print("do_release: ignoring spoofed release request.  {} != {}.\n",
-//                   remote_endpoint_.address().to_string(), lip);
-//        std::fflush(stdout);
-//        return;
-//    }
-//    gLeaseStore->delLease(socket_.local_endpoint().address().to_string(), dhcpmsg_.chaddr);
+    auto valid = dynlease_exists(ifname_, remote_endpoint_.address().to_v4(), dhcpmsg_.chaddr);
+    if (!valid) {
+        fmt::print("do_release: ignoring spoofed release request for {}.\n",
+                   remote_endpoint_.address().to_string());
+        std::fflush(stdout);
+        return;
+    }
+    dynlease_del(ifname_, remote_endpoint_.address().to_v4(), dhcpmsg_.chaddr);
 }
 
 std::string ClientListener::getChaddr(const struct dhcpmsg &dm) const

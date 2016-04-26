@@ -17,39 +17,43 @@ using baia4 = boost::asio::ip::address_v4;
 
 struct lease_state_v4
 {
-    lease_state_v4(baia4 &&a4, const std::string &ma, int64_t et)
-        : addr(std::move(a4)), expire_time(et)
+    lease_state_v4(const std::string &ma, int64_t et) : expire_time(et)
     {
         assert(ma.size() == 6);
         for (unsigned i = 0; i < 6; ++i)
             macaddr[i] = ma[i];
     }
-    baia4 addr;
+    lease_state_v4(const uint8_t *ma, int64_t et) : expire_time(et)
+    {
+        for (unsigned i = 0; i < 6; ++i)
+            macaddr[i] = ma[i];
+    }
     uint8_t macaddr[6];
     int64_t expire_time;
 };
 
 struct lease_state_v6
 {
-    lease_state_v6(baia6 &&a6, std::string &&duid_, uint32_t iaid_, int64_t et)
-        : addr(std::move(a6)), duid(std::move(duid_)), iaid(iaid_), expire_time(et) {}
-    baia6 addr;
+    lease_state_v6(std::string &&duid_, uint32_t iaid_, int64_t et)
+        : duid(std::move(duid_)), iaid(iaid_), expire_time(et) {}
+    lease_state_v6(const std::string &duid_, uint32_t iaid_, int64_t et)
+        : duid(duid_), iaid(iaid_), expire_time(et) {}
     std::string duid;
     uint32_t iaid;
     int64_t expire_time;
 };
 
 // These vectors are sorted by addr.
-using dynlease_map_v4 = std::vector<lease_state_v4>;
-using dynlease_map_v6 = std::vector<lease_state_v6>;
+using dynlease_map_v4 = std::unordered_map<std::string, std::unique_ptr<lease_state_v4>>;
+using dynlease_map_v6 = std::unordered_map<std::string, std::unique_ptr<lease_state_v6>>;
 
 // Maps interfaces to lease data.
 static std::unordered_map<std::string, dynlease_map_v4> dyn_leases_v4;
 static std::unordered_map<std::string, dynlease_map_v6> dyn_leases_v6;
 
-bool emplace_dynlease_state(size_t linenum, std::string &&interface,
-                            const std::string &v4_addr, std::string &&macaddr,
-                            int64_t expire_time, bool do_sort)
+static bool emplace_dynlease_state(size_t linenum, std::string &&interface,
+                                   std::string &&v4_addr, const std::string &macaddr,
+                                   int64_t expire_time)
 {
     auto si = dyn_leases_v4.find(interface);
     if (si == dyn_leases_v4.end()) {
@@ -57,23 +61,19 @@ bool emplace_dynlease_state(size_t linenum, std::string &&interface,
         si = x.first;
     }
     boost::system::error_code ec;
-    auto v4a = baia4::from_string(v4_addr, ec);
+    (void)baia4::from_string(v4_addr, ec);
     if (ec) {
         fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, v4_addr);
         return false;
     }
-    si->second.emplace_back(std::move(v4a), macaddr, expire_time);
-    if (!do_sort) return true;
-    std::sort(si->second.begin(), si->second.end(),
-              [](const lease_state_v4 &a, const lease_state_v4 &b) -> bool {
-                    return a.addr < b.addr;
-              });
+    si->second.emplace(std::make_pair(std::move(v4_addr),
+                                      std::make_unique<lease_state_v4>(macaddr, expire_time)));
     return true;
 }
 
-bool emplace_dynlease_state(size_t linenum, std::string &&interface,
-                            const std::string &v6_addr, std::string &&duid,
-                            uint32_t iaid, int64_t expire_time, bool do_sort)
+static bool emplace_dynlease_state(size_t linenum, std::string &&interface,
+                                   std::string &&v6_addr, std::string &&duid,
+                                   uint32_t iaid, int64_t expire_time)
 {
     auto si = dyn_leases_v6.find(interface);
     if (si == dyn_leases_v6.end()) {
@@ -81,18 +81,125 @@ bool emplace_dynlease_state(size_t linenum, std::string &&interface,
         si = x.first;
     }
     boost::system::error_code ec;
-    auto v6a = baia6::from_string(v6_addr, ec);
+    (void)baia6::from_string(v6_addr, ec);
     if (ec) {
         fmt::print(stderr, "Bad IPv6 address at line {}: {}\n", linenum, v6_addr);
         return false;
     }
-    si->second.emplace_back(std::move(v6a), std::move(duid), iaid, expire_time);
-    if (!do_sort) return true;
-    std::sort(si->second.begin(), si->second.end(),
-              [](const lease_state_v6 &a, const lease_state_v6 &b) -> bool {
-                    return a.addr < b.addr;
-              });
+    si->second.emplace
+        (std::make_pair(std::move(v6_addr),
+                        std::make_unique<lease_state_v6>(std::move(duid), iaid, expire_time)));
     return true;
+}
+
+bool dynlease_add(const std::string &interface, const baia4 &v4_addr, const uint8_t *macaddr,
+                  int64_t expire_time)
+{
+    auto si = dyn_leases_v4.find(interface);
+    if (si == dyn_leases_v4.end()) return false;
+
+    auto v4s = v4_addr.to_string();
+    auto sii = si->second.find(v4s);
+    if (sii == si->second.end()) {
+        si->second.emplace
+            (std::make_pair(std::move(v4s),
+                            std::make_unique<lease_state_v4>(macaddr, expire_time)));
+        return true;
+    } else if (sii->first == v4s && memcmp(&sii->second->macaddr, macaddr, 6) == 0) {
+        sii->second->expire_time = expire_time;
+        return true;
+    }
+    return false;
+}
+
+bool dynlease_add(const std::string &interface, const baia6 &v6_addr,
+                  const std::string &duid, uint32_t iaid, int64_t expire_time)
+{
+    auto si = dyn_leases_v6.find(interface);
+    if (si == dyn_leases_v6.end()) return false;
+
+    auto v6s = v6_addr.to_string();
+    auto sii = si->second.find(v6s);
+    if (sii == si->second.end()) {
+        si->second.emplace
+            (std::make_pair(std::move(v6s),
+                            std::make_unique<lease_state_v6>(duid, iaid, expire_time)));
+        return true;
+    } else if (sii->first == v6s && sii->second->duid == duid && sii->second->iaid == iaid) {
+        sii->second->expire_time = expire_time;
+        return true;
+    }
+    return false;
+}
+
+bool dynlease_exists(const std::string &interface, const baia4 &v4_addr, const uint8_t *macaddr)
+{
+    auto si = dyn_leases_v4.find(interface);
+    if (si == dyn_leases_v4.end()) return false;
+
+    const auto v4s = v4_addr.to_string();
+    auto sii = si->second.find(v4s);
+    if (sii == si->second.end())
+        return false;
+    else if (sii->first == v4s && memcmp(&sii->second->macaddr, macaddr, 6) == 0) {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts))
+            throw std::runtime_error("clock_gettime failed");
+        return ts.tv_sec < sii->second->expire_time;
+    }
+    return false;
+}
+
+bool dynlease_exists(const std::string &interface, const baia6 &v6_addr,
+                     const std::string &duid, uint32_t iaid)
+{
+    auto si = dyn_leases_v6.find(interface);
+    if (si == dyn_leases_v6.end()) return false;
+
+    const auto v6s = v6_addr.to_string();
+    auto sii = si->second.find(v6s);
+    if (sii == si->second.end())
+        return false;
+    else if (sii->first == v6s && sii->second->duid == duid && sii->second->iaid == iaid) {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts))
+            throw std::runtime_error("clock_gettime failed");
+        return ts.tv_sec < sii->second->expire_time;
+    }
+    return false;
+}
+
+bool dynlease_del(const std::string &interface, const baia4 &v4_addr, const uint8_t *macaddr)
+{
+    auto si = dyn_leases_v4.find(interface);
+    if (si == dyn_leases_v4.end()) return false;
+
+    const auto v4s = v4_addr.to_string();
+    auto sii = si->second.find(v4s);
+    if (sii == si->second.end())
+        return false;
+    else if (sii->first == v4s && memcmp(&sii->second->macaddr, macaddr, 6) == 0) {
+        si->second.erase(sii);
+        return true;
+    }
+    return false;
+}
+
+bool dynlease_del(const std::string &interface, const baia6 &v6_addr,
+                  const std::string &duid, uint32_t iaid)
+{
+    auto si = dyn_leases_v6.find(interface);
+    if (si == dyn_leases_v6.end()) return false;
+
+    const auto v6s = v6_addr.to_string();
+    auto sii = si->second.find(v6s);
+    if (sii == si->second.end())
+        return false;
+    else if (sii->first == v6s && sii->second->duid == duid && sii->second->iaid == iaid) {
+        si->second.erase(sii);
+        return true;
+    }
+    return false;
 }
 
 // v4 <interface> <ip> <macaddr> <expire_time>
@@ -116,13 +223,14 @@ bool dynlease_serialize(const std::string &path)
             struct timespec ts;
             if (clock_gettime(CLOCK_MONOTONIC, &ts))
                 throw std::runtime_error("clock_gettime failed");
-            if (ts.tv_sec >= j.expire_time)
+            if (ts.tv_sec >= j.second->expire_time)
                 continue;
 
             wbuf = fmt::format("v4 {} {} {:02x}{:02x}{:02x}{:02x}{:02x}{:02x} {}\n",
-                               iface, j.addr, j.macaddr[0], j.macaddr[1], j.macaddr[2],
-                                              j.macaddr[3], j.macaddr[4], j.macaddr[5],
-                               j.expire_time);
+                               iface, j.first,
+                               j.second->macaddr[0], j.second->macaddr[1], j.second->macaddr[2],
+                               j.second->macaddr[3], j.second->macaddr[4], j.second->macaddr[5],
+                               j.second->expire_time);
             const auto fs = fwrite(wbuf.c_str(), wbuf.size(), 1, f);
             if (fs != wbuf.size()) {
                 fmt::print(stderr, "{}: short write {} < {}\n", __func__, fs, wbuf.size());
@@ -138,13 +246,13 @@ bool dynlease_serialize(const std::string &path)
             struct timespec ts;
             if (clock_gettime(CLOCK_MONOTONIC, &ts))
                 throw std::runtime_error("clock_gettime failed");
-            if (ts.tv_sec >= j.expire_time)
+            if (ts.tv_sec >= j.second->expire_time)
                 continue;
 
-            wbuf = fmt::format("v6 {} {} ", iface, j.addr);
-            for (const auto &k: j.duid)
+            wbuf = fmt::format("v6 {} {} ", iface, j.first);
+            for (const auto &k: j.second->duid)
                 wbuf.append(fmt::format("{:02x}", k));
-            wbuf.append(" {} {}\n", j.iaid, j.expire_time);
+            wbuf.append(" {} {}\n", j.second->iaid, j.second->expire_time);
             const auto fs = fwrite(wbuf.c_str(), wbuf.size(), 1, f);
             if (fs != wbuf.size()) {
                 fmt::print(stderr, "{}: short write {} < {}\n", __func__, fs, wbuf.size());
@@ -210,12 +318,12 @@ struct cfg_parse_state {
     action ExpireTimeEn { cps.expire_time = nk::str_to_s64(std::string(cps.st, p - cps.st)); }
 
     action V4EntryEn {
-        emplace_dynlease_state(linenum, std::move(cps.interface), cps.v4_addr,
-                               std::move(cps.macaddr), cps.expire_time, false);
+        emplace_dynlease_state(linenum, std::move(cps.interface), std::move(cps.v4_addr),
+                               cps.macaddr, cps.expire_time);
     }
     action V6EntryEn {
-        emplace_dynlease_state(linenum, std::move(cps.interface), cps.v6_addr,
-                               std::move(cps.duid), cps.iaid, cps.expire_time, false);
+        emplace_dynlease_state(linenum, std::move(cps.interface), std::move(cps.v6_addr),
+                               std::move(cps.duid), cps.iaid, cps.expire_time);
     }
 
     interface = alnum+ >St %InterfaceEn;

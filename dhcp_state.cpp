@@ -24,6 +24,7 @@ struct interface_data
     std::vector<uint8_t> dns_search_blob;
     std::vector<uint8_t> ntp6_fqdns_blob;
     std::pair<baia4, baia4> dynamic_range;
+    uint32_t dynamic_lifetime;
     bool use_dhcpv4:1;
     bool use_dhcpv6:1;
     bool use_dynamic_v4:1;
@@ -321,7 +322,8 @@ bool emplace_broadcast(size_t linenum, const std::string &interface, const std::
 }
 
 bool emplace_dynamic_range(size_t linenum, const std::string &interface,
-                           const std::string &lo_addr, const std::string &hi_addr)
+                           const std::string &lo_addr, const std::string &hi_addr,
+                           uint32_t dynamic_lifetime)
 {
     if (interface.empty()) {
         fmt::print(stderr, "No interface specified at line {}\n", linenum);
@@ -343,6 +345,7 @@ bool emplace_dynamic_range(size_t linenum, const std::string &interface,
     if (v4a_lo > v4a_hi)
         std::swap(v4a_lo, v4a_hi);
     si->second.dynamic_range = std::make_pair(std::move(v4a_lo), std::move(v4a_hi));
+    si->second.dynamic_lifetime = dynamic_lifetime;
     si->second.use_dynamic_v4 = true;
     return true;
 }
@@ -450,11 +453,34 @@ const boost::asio::ip::address_v4 &query_broadcast(const std::string &interface)
     return si->second.broadcast;
 }
 
+const std::pair<baia4, baia4> &query_dynamic_range(const std::string &interface,
+                                                   uint32_t &dynamic_lifetime)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    dynamic_lifetime = si->second.dynamic_lifetime;
+    return si->second.dynamic_range;
+}
+
 const std::vector<std::string> &query_dns_search(const std::string &interface)
 {
     auto si = interface_state.find(interface);
     if (si == interface_state.end()) throw std::runtime_error("no such interface");
     return si->second.dns_search;
+}
+
+bool query_use_dynamic_v4(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.use_dynamic_v4;
+}
+
+bool query_use_dynamic_v6(const std::string &interface)
+{
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) throw std::runtime_error("no such interface");
+    return si->second.use_dynamic_v6;
 }
 
 size_t bound_interfaces_count()

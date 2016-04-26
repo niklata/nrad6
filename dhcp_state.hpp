@@ -33,7 +33,8 @@ bool emplace_subnet(size_t linenum, const std::string &interface, const std::str
 bool emplace_gateway(size_t linenum, const std::string &interface, const std::string &addr);
 bool emplace_broadcast(size_t linenum, const std::string &interface, const std::string &addr);
 bool emplace_dynamic_range(size_t linenum, const std::string &interface,
-                           const std::string &lo_addr, const std::string &hi_addr);
+                           const std::string &lo_addr, const std::string &hi_addr,
+                           uint32_t dynamic_lifetime);
 bool emplace_dns_search(size_t linenum, const std::string &interface, std::string &&label);
 const dhcpv6_entry* query_dhcp_state(const std::string &interface, const std::string &duid,
                                      uint32_t iaid);
@@ -48,7 +49,11 @@ const std::vector<boost::asio::ip::address_v6> &query_ntp6_multicasts(const std:
 const std::vector<boost::asio::ip::address_v4> &query_gateway(const std::string &interface);
 const boost::asio::ip::address_v4 &query_subnet(const std::string &interface);
 const boost::asio::ip::address_v4 &query_broadcast(const std::string &interface);
+const std::pair<boost::asio::ip::address_v4, boost::asio::ip::address_v4>
+    &query_dynamic_range(const std::string &interface, uint32_t &dynamic_lifetime);
 const std::vector<std::string> &query_dns_search(const std::string &interface);
+bool query_use_dynamic_v4(const std::string &interface);
+bool query_use_dynamic_v6(const std::string &interface);
 size_t bound_interfaces_count();
 void bound_interfaces_foreach(std::function<void(const std::string&, bool, bool)> fn);
 
