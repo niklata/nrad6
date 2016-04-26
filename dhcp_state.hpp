@@ -32,6 +32,8 @@ bool emplace_ntp_server(size_t linenum, const std::string &interface,
 bool emplace_subnet(size_t linenum, const std::string &interface, const std::string &addr);
 bool emplace_gateway(size_t linenum, const std::string &interface, const std::string &addr);
 bool emplace_broadcast(size_t linenum, const std::string &interface, const std::string &addr);
+bool emplace_dynamic_range(size_t linenum, const std::string &interface,
+                           const std::string &lo_addr, const std::string &hi_addr);
 bool emplace_dns_search(size_t linenum, const std::string &interface, std::string &&label);
 const dhcpv6_entry* query_dhcp_state(const std::string &interface, const std::string &duid,
                                      uint32_t iaid);

@@ -62,6 +62,7 @@ struct cfg_parse_state {
         iaid.clear();
         macaddr.clear();
         v4_addr.clear();
+        v4_addr2.clear();
         v6_addr.clear();
     }
     const char *st;
@@ -71,6 +72,7 @@ struct cfg_parse_state {
     std::string iaid;
     std::string macaddr;
     std::string v4_addr;
+    std::string v4_addr2;
     std::string v6_addr;
     std::string default_lifetime;
     std::string interface;
@@ -118,6 +120,12 @@ using baia6 = boost::asio::ip::address_v6;
     action BroadcastEn {
         emplace_broadcast(linenum, cps.interface, cps.v4_addr);
     }
+    action DynRangePreEn {
+        cps.v4_addr2 = std::move(cps.v4_addr);
+    }
+    action DynRangeEn {
+        emplace_dynamic_range(linenum, cps.interface, cps.v4_addr2, cps.v4_addr);
+    }
     action V4EntryEn {
         emplace_dhcp_state(linenum, cps.interface, std::move(cps.macaddr), cps.v4_addr,
                            nk::str_to_u32(cps.default_lifetime));
@@ -144,12 +152,13 @@ using baia6 = boost::asio::ip::address_v6;
     subnet = space* 'subnet' space+ v4_addr %SubnetEn comment;
     gateway = space* 'gateway' space+ v4_addr %GatewayEn comment;
     broadcast = space* 'broadcast' space+ v4_addr %BroadcastEn comment;
+    dynamic_range = space* 'dynamic_range' space+ v4_addr %DynRangePreEn space+ v4_addr %DynRangeEn comment;
     v4_entry = space* 'v4' space+ macaddr space+ v4_addr comment;
     v6_entry = space* 'v6' space+ duid space+ iaid space+ v6_addr comment;
 
     main := comment | bind4 | bind6 | default_lifetime | interface | dns_server
-          | dns_search | ntp_server | subnet | gateway | broadcast | v6_entry %V6EntryEn
-          | v4_entry %V4EntryEn;
+          | dns_search | ntp_server | subnet | gateway | broadcast | dynamic_range
+          | v6_entry %V6EntryEn | v4_entry %V4EntryEn;
 }%%
 
 %% write data;

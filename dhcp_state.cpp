@@ -23,8 +23,11 @@ struct interface_data
     boost::asio::ip::address_v4 broadcast;
     std::vector<uint8_t> dns_search_blob;
     std::vector<uint8_t> ntp6_fqdns_blob;
+    std::pair<baia4, baia4> dynamic_range;
     bool use_dhcpv4:1;
     bool use_dhcpv6:1;
+    bool use_dynamic_v4:1;
+    bool use_dynamic_v6:1;
 };
 
 static std::unordered_map<std::string, interface_data> interface_state;
@@ -315,6 +318,33 @@ bool emplace_broadcast(size_t linenum, const std::string &interface, const std::
     } else
         fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, addr);
     return false;
+}
+
+bool emplace_dynamic_range(size_t linenum, const std::string &interface,
+                           const std::string &lo_addr, const std::string &hi_addr)
+{
+    if (interface.empty()) {
+        fmt::print(stderr, "No interface specified at line {}\n", linenum);
+        return false;
+    }
+    auto si = interface_state.find(interface);
+    if (si == interface_state.end()) return false;
+    boost::system::error_code ec;
+    auto v4a_lo = boost::asio::ip::address_v4::from_string(lo_addr, ec);
+    if (ec) {
+        fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, lo_addr);
+        return false;
+    }
+    auto v4a_hi = boost::asio::ip::address_v4::from_string(hi_addr, ec);
+    if (ec) {
+        fmt::print(stderr, "Bad IPv4 address at line {}: {}\n", linenum, hi_addr);
+        return false;
+    }
+    if (v4a_lo > v4a_hi)
+        std::swap(v4a_lo, v4a_hi);
+    si->second.dynamic_range = std::make_pair(std::move(v4a_lo), std::move(v4a_hi));
+    si->second.use_dynamic_v4 = true;
+    return true;
 }
 
 bool emplace_dns_search(size_t linenum, const std::string &interface, std::string &&label)
