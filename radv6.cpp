@@ -509,6 +509,7 @@ void RA6Listener::send_advert()
             ra6_pfxi.prefix(i.address, i.prefixlen);
             ra6_pfxi.on_link(true);
             ra6_pfxi.auto_addr_cfg(false);
+            ra6_pfxi.router_addr_flag(true);
             ra6_pfxi.valid_lifetime(2592000);
             ra6_pfxi.preferred_lifetime(604800);
             ra6_pfxs.push_back(ra6_pfxi);
