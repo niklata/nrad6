@@ -59,7 +59,7 @@ extern "C" {
 #include "nk/seccomp-bpf.h"
 }
 #include "nlsocket.hpp"
-#include "radv6.hpp"
+#include "dhcp6.hpp"
 #include "dhcp4.hpp"
 #include "dhcp_state.hpp"
 
@@ -72,7 +72,7 @@ static bool use_seccomp(false);
 
 std::unique_ptr<NLSocket> nl_socket;
 
-static std::vector<std::unique_ptr<RA6Listener>> v6_listeners;
+static std::vector<std::unique_ptr<D6Listener>> v6_listeners;
 static std::vector<std::unique_ptr<ClientListener>> v4_listeners;
 
 static std::random_device g_random_secure;
@@ -97,7 +97,7 @@ static void init_listeners()
     bound_interfaces_foreach([ios, v6l, v4l](const std::string &i, bool use_v4, bool use_v6) {
         if (use_v6) {
             try {
-                v6l->emplace_back(std::make_unique<RA6Listener>(*ios, i));
+                v6l->emplace_back(std::make_unique<D6Listener>(*ios, i));
             } catch (const std::out_of_range &exn) {
                 fmt::print(stderr, "Can't bind to v6 interface: {}\n", i);
             }

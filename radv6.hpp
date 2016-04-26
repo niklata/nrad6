@@ -4,7 +4,6 @@
 #include <string>
 #include <memory>
 #include <boost/asio.hpp>
-#include "dhcp6.hpp"
 
 class RA6Listener
 {
@@ -24,7 +23,6 @@ private:
     unsigned int advi_s_max_;
     bool using_bpf_:1;
     boost::asio::streambuf recv_buffer_;
-    std::unique_ptr<D6Listener> d6_listener_;
 };
 
 #endif

@@ -7,6 +7,7 @@
 #include <boost/asio.hpp>
 #include <nk/netbits.hpp>
 #include "dhcp_state.hpp"
+#include "radv6.hpp"
 
 enum class dhcp6_msgtype {
     unknown = 0,
@@ -204,9 +205,7 @@ struct d6_statuscode
 class D6Listener
 {
 public:
-    D6Listener(boost::asio::io_service &io_service,
-               const std::string &ifname,
-               const char macaddr[6]);
+    D6Listener(boost::asio::io_service &io_service, const std::string &ifname);
 private:
     using prev_opt_state = std::pair<int8_t, uint16_t>; // Type of parent opt and length left
     struct d6msg_state
@@ -245,13 +244,14 @@ private:
     void handle_information_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void start_receive();
     void attach_bpf(int fd);
-    boost::asio::ip::udp::socket socket_;
-    std::string ifname_;
-    bool using_bpf_:1;
-    char macaddr_[6];
     boost::asio::streambuf recv_buffer_;
     boost::asio::ip::udp::endpoint sender_endpoint_;
     boost::asio::ip::address_v6 local_ip_;
+    boost::asio::ip::udp::socket socket_;
+    std::string ifname_;
+    std::unique_ptr<RA6Listener> radv6_listener_;
+    bool using_bpf_:1;
+    char macaddr_[6];
 
     size_t bytes_left_dec(d6msg_state &d6s, std::size_t &bytes_left, size_t v);
 };

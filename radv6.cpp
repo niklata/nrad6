@@ -418,16 +418,11 @@ RA6Listener::RA6Listener(ba::io_service &io_service, const std::string &ifname)
     : timer_(io_service), socket_(io_service), ifname_(ifname),
       advi_s_max_(600), using_bpf_(false)
 {
-    int ifidx = nl_socket->get_ifindex(ifname_);
-    auto &ifinfo = nl_socket->interfaces.at(ifidx);
-
     const ba::ip::icmp::endpoint global_ep(ba::ip::address_v6::any(), 0);
     socket_.open(ba::ip::icmp::v6());
     attach_multicast(socket_.native(), ifname, mc6_allrouters);
     attach_bpf(socket_.native());
     socket_.bind(global_ep);
-
-    d6_listener_ = std::make_unique<D6Listener>(io_service, ifname_, ifinfo.macaddr);
 
     send_advert();
     start_periodic_announce();

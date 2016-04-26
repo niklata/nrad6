@@ -2,20 +2,24 @@
 #include <sys/socket.h>
 #include <ifaddrs.h>
 #include <nk/format.hpp>
+#include "nlsocket.hpp"
 #include "multicast6.hpp"
 #include "dhcp6.hpp"
 #include "attach_bpf.h"
 
 namespace ba = boost::asio;
 
+extern std::unique_ptr<NLSocket> nl_socket;
 static auto mc6_alldhcp_ras = ba::ip::address_v6::from_string("ff02::1:2");
 
 D6Listener::D6Listener(ba::io_service &io_service,
-                       const std::string &ifname,
-                       const char macaddr[6])
+                       const std::string &ifname)
   : socket_(io_service), ifname_(ifname), using_bpf_(false)
 {
-    memcpy(macaddr_, macaddr, sizeof macaddr_);
+    int ifidx = nl_socket->get_ifindex(ifname_);
+    auto &ifinfo = nl_socket->interfaces.at(ifidx);
+    memcpy(macaddr_, ifinfo.macaddr, sizeof macaddr_);
+
     socket_.open(ba::ip::udp::v6());
     auto lla_ep = ba::ip::udp::endpoint(ba::ip::address_v6::any(), 547);
     attach_multicast(socket_.native(), ifname, mc6_alldhcp_ras);
@@ -46,6 +50,8 @@ D6Listener::D6Listener(ba::io_service &io_service,
         break;
     }
     freeifaddrs(ifaddr);
+
+    radv6_listener_ = std::make_unique<RA6Listener>(io_service, ifname);
 
     start_receive();
 }
