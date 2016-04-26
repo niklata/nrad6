@@ -222,8 +222,8 @@ bool ClientListener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, boo
     const auto expire_time = getNowTs() + dynamic_lifetime;
 
     auto v4a = dynlease_query_refresh(ifname_, hwaddr, expire_time);
-    if (v4a.size()) {
-        reply.yiaddr = htonl(baia4::from_string(v4a).to_ulong());
+    if (v4a != boost::asio::ip::address_v4::any()) {
+        reply.yiaddr = htonl(v4a.to_ulong());
         add_u32_option(&reply, DCODE_LEASET, htonl(dynamic_lifetime));
         return true;
     }
