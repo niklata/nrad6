@@ -96,7 +96,10 @@ bool dynlease_add(const std::string &interface, const baia4 &v4_addr, const uint
                   int64_t expire_time)
 {
     auto si = dyn_leases_v4.find(interface);
-    if (si == dyn_leases_v4.end()) return false;
+    if (si == dyn_leases_v4.end()) {
+        auto x = dyn_leases_v4.emplace(std::make_pair(interface, dynlease_map_v4()));
+        si = x.first;
+    }
 
     auto v4s = v4_addr.to_string();
     auto sii = si->second.find(v4s);
@@ -116,7 +119,10 @@ bool dynlease_add(const std::string &interface, const baia6 &v6_addr,
                   const std::string &duid, uint32_t iaid, int64_t expire_time)
 {
     auto si = dyn_leases_v6.find(interface);
-    if (si == dyn_leases_v6.end()) return false;
+    if (si == dyn_leases_v6.end()) {
+        auto x = dyn_leases_v6.emplace(std::make_pair(std::move(interface), dynlease_map_v6()));
+        si = x.first;
+    }
 
     auto v6s = v6_addr.to_string();
     auto sii = si->second.find(v6s);
@@ -130,6 +136,38 @@ bool dynlease_add(const std::string &interface, const baia6 &v6_addr,
         return true;
     }
     return false;
+}
+
+const std::string &dynlease_query_refresh(const std::string &interface, const uint8_t *macaddr,
+                                          int64_t expire_time)
+{
+    static std::string blank{""};
+    auto si = dyn_leases_v4.find(interface);
+    if (si == dyn_leases_v4.end()) return blank;
+
+    for (auto &i: si->second) {
+        if (memcmp(&i.second->macaddr, macaddr, 6) == 0) {
+            i.second->expire_time = expire_time;
+            return i.first;
+        }
+    }
+    return blank;
+}
+
+const std::string &dynlease_query_refresh(const std::string &interface, const std::string &duid,
+                                          uint32_t iaid, int64_t expire_time)
+{
+    static std::string blank{""};
+    auto si = dyn_leases_v6.find(interface);
+    if (si == dyn_leases_v6.end()) return blank;
+
+    for (auto &i: si->second) {
+        if (i.second->duid == duid && i.second->iaid == iaid) {
+            i.second->expire_time = expire_time;
+            return i.first;
+        }
+    }
+    return blank;
 }
 
 bool dynlease_exists(const std::string &interface, const baia4 &v4_addr, const uint8_t *macaddr)

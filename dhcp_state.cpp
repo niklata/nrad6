@@ -192,7 +192,7 @@ bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::strin
     return true;
 }
 
-bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&macaddr,
+bool emplace_dhcp_state(size_t linenum, const std::string &interface, const std::string &macaddr,
                         const std::string &v4_addr, uint32_t default_lifetime)
 {
     auto si = interface_state.find(interface);
@@ -207,8 +207,11 @@ bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::strin
         return false;
     }
     fmt::print("STATEv4: {} {} {}\n", macaddr, v4_addr, default_lifetime);
+    uint8_t buf[7] = {0};
+    for (unsigned i = 0; i < 6; ++i)
+        buf[i] = strtol(macaddr.c_str() + 3*i, nullptr, 16);
     si->second.macaddr_mapping.emplace
-        (std::make_pair(std::move(macaddr),
+        (std::make_pair(std::string{reinterpret_cast<char *>(buf), 6},
                         std::make_unique<dhcpv4_entry>(v4a, default_lifetime)));
     return true;
 }

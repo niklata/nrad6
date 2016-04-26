@@ -217,10 +217,18 @@ bool ClientListener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, boo
     if (!query_use_dynamic_v4(ifname_))
         return false;
 
-    // IP is randomly selected from the dynamic range.
     uint32_t dynamic_lifetime;
     const auto dr = query_dynamic_range(ifname_, dynamic_lifetime);
     const auto expire_time = getNowTs() + dynamic_lifetime;
+
+    auto v4a = dynlease_query_refresh(ifname_, hwaddr, expire_time);
+    if (v4a.size()) {
+        reply.yiaddr = htonl(baia4::from_string(v4a).to_ulong());
+        add_u32_option(&reply, DCODE_LEASET, htonl(dynamic_lifetime));
+        return true;
+    }
+
+    // IP is randomly selected from the dynamic range.
     const auto al = dr.first.to_ulong();
     const auto ah = dr.second.to_ulong();
     const auto ar = ah - al;
@@ -285,6 +293,7 @@ bool ClientListener::create_reply(dhcpmsg &reply, const uint8_t *hwaddr, bool do
 
 void ClientListener::reply_discover()
 {
+    fmt::print("Got DHCP4 discover message\n;");
     dhcpmsg reply;
     dhcpmsg_init(reply, DHCPOFFER, dhcpmsg_.xid);
     if (create_reply(reply, dhcpmsg_.chaddr, true))
@@ -293,6 +302,7 @@ void ClientListener::reply_discover()
 
 void ClientListener::reply_request(bool is_direct)
 {
+    fmt::print("Got DHCP4 request message\n;");
     dhcpmsg reply;
     dhcpmsg_init(reply, DHCPACK, dhcpmsg_.xid);
     if (create_reply(reply, dhcpmsg_.chaddr, true)) {
@@ -304,6 +314,7 @@ void ClientListener::reply_request(bool is_direct)
 static ba::ip::address_v4 zero_v4(0lu);
 void ClientListener::reply_inform()
 {
+    fmt::print("Got DHCP4 inform message\n;");
     struct dhcpmsg reply;
     dhcpmsg_init(reply, DHCPACK, dhcpmsg_.xid);
     if (create_reply(reply, dhcpmsg_.chaddr, false)) {

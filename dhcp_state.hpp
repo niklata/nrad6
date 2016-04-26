@@ -23,7 +23,7 @@ bool emplace_bind(size_t linenum, std::string &&interface, bool is_v4);
 bool emplace_interface(size_t linenum, const std::string &interface);
 bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&duid,
                         uint32_t iaid, const std::string &v6_addr, uint32_t default_lifetime);
-bool emplace_dhcp_state(size_t linenum, const std::string &interface, std::string &&macaddr,
+bool emplace_dhcp_state(size_t linenum, const std::string &interface, const std::string &macaddr,
                         const std::string &v4_addr, uint32_t default_lifetime);
 bool emplace_dns_server(size_t linenum, const std::string &interface,
                         const std::string &addr, bool is_v4);

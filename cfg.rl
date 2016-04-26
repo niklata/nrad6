@@ -128,7 +128,7 @@ using baia6 = boost::asio::ip::address_v6;
                               cps.default_lifetime);
     }
     action V4EntryEn {
-        emplace_dhcp_state(linenum, cps.interface, std::move(cps.macaddr), cps.v4_addr,
+        emplace_dhcp_state(linenum, cps.interface, cps.macaddr, cps.v4_addr,
                            cps.default_lifetime);
     }
     action V6EntryEn {
