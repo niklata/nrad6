@@ -154,7 +154,9 @@ bool emplace_bind(size_t linenum, std::string &&interface, bool is_v4)
                                                interface_data(is_v4, !is_v4)));
         return true;
     }
-    return false;
+    if (is_v4) si->second.use_dhcpv4 = true;
+    if (!is_v4) si->second.use_dhcpv6 = true;
+    return true;
 }
 
 bool emplace_interface(size_t linenum, const std::string &interface)
