@@ -42,6 +42,7 @@ include_directories ( ${Boost_INCLUDE_DIRS} )
 find_package(Threads)
 
 set(RAGEL_CFG ${CMAKE_CURRENT_BINARY_DIR}/cfg.cpp)
+set(RAGEL_DYNLEASE ${CMAKE_CURRENT_BINARY_DIR}/dynlease.cpp)
 
 find_program(RAGEL ragel)
 add_custom_command(
@@ -52,11 +53,19 @@ add_custom_command(
   COMMENT "Compiling Ragel state machine: cfg.rl"
   VERBATIM
   )
+add_custom_command(
+  OUTPUT ${RAGEL_DYNLEASE}
+  COMMAND ${RAGEL} -G2 -o ${RAGEL_DYNLEASE} dynlease.rl
+  DEPENDS dynlease.rl
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Compiling Ragel state machine: dynlease.rl"
+  VERBATIM
+  )
 
 file(GLOB NRAD6_SRCS_C "*.c")
 file(GLOB NRAD6_SRCS_CPP "*.cpp")
 list(APPEND NRAD6_SRCS ${NRAD6_SRCS_C} ${NRAD6_SRCS_CPP})
 
-add_executable(nrad6 ${RAGEL_CFG} ${NRAD6_SRCS})
+add_executable(nrad6 ${RAGEL_CFG} ${RAGEL_DYNLEASE} ${NRAD6_SRCS})
 target_link_libraries(nrad6 ${CMAKE_THREAD_LIBS_INIT} ${Boost_LIBRARIES} ncmlib cppformat)
 
