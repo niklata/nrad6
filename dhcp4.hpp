@@ -133,8 +133,6 @@ private:
     int swapInterval_;
 };
 
-void init_client_states_v4(boost::asio::io_service &io_service);
-
 class ClientListener
 {
 public:

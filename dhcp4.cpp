@@ -45,14 +45,17 @@ namespace ba = boost::asio;
 extern nk::rng::xorshift64m g_random_prng;
 
 static std::unique_ptr<ClientStates> client_states_v4;
-void init_client_states_v4(ba::io_service &io_service)
+static void init_client_states_v4(ba::io_service &io_service)
 {
+    static bool was_initialized;
+    if (was_initialized) return;
     client_states_v4 = std::make_unique<ClientStates>(io_service);
 }
 
 ClientListener::ClientListener(ba::io_service &io_service, const std::string &ifname)
  : socket_(io_service), ifname_(ifname)
 {
+    init_client_states_v4(io_service);
     const auto endpoint = ba::ip::udp::endpoint(ba::ip::address_v4::any(), 67);
     socket_.open(endpoint.protocol());
     socket_.set_option(ba::ip::udp::socket::broadcast(true));
