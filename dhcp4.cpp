@@ -217,6 +217,8 @@ bool ClientListener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, boo
     if (!query_use_dynamic_v4(ifname_))
         return false;
 
+    fmt::print("Checking dynamic IP.\n");
+
     uint32_t dynamic_lifetime;
     const auto dr = query_dynamic_range(ifname_, dynamic_lifetime);
     const auto expire_time = getNowTs() + dynamic_lifetime;
@@ -225,8 +227,10 @@ bool ClientListener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, boo
     if (v4a != boost::asio::ip::address_v4::any()) {
         reply.yiaddr = htonl(v4a.to_ulong());
         add_u32_option(&reply, DCODE_LEASET, htonl(dynamic_lifetime));
+        fmt::print("Assigned existing dynamic IP: {}.\n", v4a.to_string());
         return true;
     }
+    fmt::print("Selecting an unused dynamic IP.\n");
 
     // IP is randomly selected from the dynamic range.
     const auto al = dr.first.to_ulong();

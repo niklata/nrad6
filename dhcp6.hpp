@@ -238,6 +238,7 @@ private:
     void write_response_header(const d6msg_state &d6s, std::ostream &os, dhcp6_msgtype mtype);
     void handle_solicit_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void handle_request_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
+    bool confirm_match(const d6msg_state &d6s) const;
     void handle_confirm_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void handle_renew_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);
     void handle_rebind_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer);

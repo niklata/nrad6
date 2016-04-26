@@ -249,32 +249,38 @@ void D6Listener::handle_request_msg(const d6msg_state &d6s, ba::streambuf &send_
     attach_dns_ntp_info(d6s, os);
 }
 
+bool D6Listener::confirm_match(const d6msg_state &d6s) const
+{
+    for (const auto &i: d6s.ias) {
+        printf("Querying duid='%s' iaid=%u...\n", d6s.client_duid.c_str(), i.iaid);
+        auto x = query_dhcp_state(ifname_, d6s.client_duid, i.iaid);
+        if (x) {
+            fmt::print("Found a possible match for an IA.\n");
+            bool found_addr{false};
+            for (const auto &j: i.ia_na_addrs) {
+                if (j.addr == x->address)
+                    found_addr = true;
+            }
+            if (!found_addr) {
+                fmt::print("Mismatched address. NAK.\n");
+                return false;
+            }
+        } else {
+            fmt::print("Unknown DUID={} IAID={} from addr={}. NAK.\n",
+                       d6s.client_duid, i.iaid, sender_endpoint_.address().to_string());
+            return false;
+        }
+    }
+    fmt::print("Everything matches and is OK.\n");
+    return true;
+}
+
 void D6Listener::handle_confirm_msg(const d6msg_state &d6s, boost::asio::streambuf &send_buffer)
 {
     std::ostream os(&send_buffer);
     write_response_header(d6s, os, dhcp6_msgtype::reply);
 
-    bool all_ok{true};
-    for (const auto &i: d6s.ias) {
-        printf("Querying duid='%s' iaid=%u...\n", d6s.client_duid.c_str(), i.iaid);
-        auto x = query_dhcp_state(ifname_, d6s.client_duid, i.iaid);
-        if (x) {
-            fmt::print("Found a match.\n");
-            for (const auto &j: i.ia_na_addrs) {
-                fmt::print("Checking address.\n");
-                if (j.addr != x->address) {
-                    all_ok = false;
-                    fmt::print("Mismatched address ({} != {}). NAK.\n",
-                               j.addr.to_string(), x->address.to_string());
-                    break;
-                }
-            }
-        } else {
-            fmt::print("Unknown DUID={} IAID={} from addr={}\n",
-                       d6s.client_duid, i.iaid, sender_endpoint_.address().to_string());
-        }
-        if (!all_ok) break;
-    }
+    bool all_ok = confirm_match(d6s);
 
     // Write Status Code Success or NotOnLink.
     char ok_str[] = "ACK";
