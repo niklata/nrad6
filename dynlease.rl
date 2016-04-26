@@ -100,12 +100,13 @@ bool emplace_dynlease_state(size_t linenum, std::string &&interface,
 
 bool dynlease_serialize(const std::string &path)
 {
-    const auto f = fopen(path.c_str(), "w");
+    const auto tmp_path = path + ".tmp";
+    const auto f = fopen(tmp_path.c_str(), "w");
     if (!f) {
         fmt::print(stderr, "failed to open '{}' for dynamic lease serialization\n");
         return false;
     }
-    SCOPE_EXIT{ fclose(f); };
+    SCOPE_EXIT{ fclose(f); unlink(tmp_path.c_str()); };
     std::string wbuf;
     for (const auto &i: dyn_leases_v4) {
         const auto &iface = i.first;
@@ -151,9 +152,19 @@ bool dynlease_serialize(const std::string &path)
             }
         }
     }
-    fflush(f);
+    if (fflush(f)) {
+        fmt::print(stderr, "{}: fflush failed: {}\n", __func__, strerror(errno));
+        return false;
+    }
     const auto fd = fileno(f);
-    fdatasync(fd);
+    if (fdatasync(fd)) {
+        fmt::print(stderr, "{}: fdatasync failed: {}\n", __func__, strerror(errno));
+        return false;
+    }
+    if (rename(tmp_path.c_str(), path.c_str())) {
+        fmt::print(stderr, "{}: rename failed: {}\n", __func__, strerror(errno));
+        return false;
+    }
     return true;
 }
 
