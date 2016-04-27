@@ -258,7 +258,8 @@ bool dynlease_serialize(const std::string &path)
     const auto tmp_path = path + ".tmp";
     const auto f = fopen(tmp_path.c_str(), "w");
     if (!f) {
-        fmt::print(stderr, "failed to open '{}' for dynamic lease serialization\n");
+        fmt::print(stderr, "{}: failed to open '{}' for dynamic lease serialization\n",
+                   __func__, path);
         return false;
     }
     SCOPE_EXIT{ fclose(f); unlink(tmp_path.c_str()); };
@@ -410,7 +411,8 @@ bool dynlease_deserialize(const std::string &path)
     char buf[MAX_LINE];
     const auto f = fopen(path.c_str(), "r");
     if (!f) {
-        fmt::print(stderr, "failed to open '{}' for dynamic lease deserialization\n");
+        fmt::print(stderr, "{}: failed to open '{}' for dynamic lease deserialization\n",
+                   __func__, path);
         return false;
     }
     SCOPE_EXIT{ fclose(f); };
