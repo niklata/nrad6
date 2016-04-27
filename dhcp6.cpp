@@ -321,7 +321,7 @@ void D6Listener::handle_confirm_msg(const d6msg_state &d6s, boost::asio::streamb
     char nak_str[] = "NAK";
     dhcp6_opt header;
     header.type(13);
-    header.length(2 + all_ok ? (sizeof ok_str - 1) : (sizeof ok_str - 1));
+    header.length(5);
     os << header;
     d6_statuscode sc(all_ok ? d6_statuscode::code::success : d6_statuscode::code::notonlink);
     os << sc;
