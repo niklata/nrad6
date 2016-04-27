@@ -1,23 +1,33 @@
+===============================================================
+
+                     USE 'ndhs' INSTEAD!
+
+   This repository only exists for historical purposes.  The
+    current version of this program now lives in the 'ndhs'
+                         repository.
+
+===============================================================
+
 REQUIREMENTS
 ------------
 
-Linux kernel (tested: 3.14)
-C99 C compiler (tested: gcc 4.8.2)
-C++11 compiler (tested: gcc 4.8.2)
-CMake (tested: 2.8.12.2)
-Boost (tested: 1.55.0)
+Linux kernel
+GCC or Clang
+CMake
+Boost
+ncmlib
+cppformat
 
 INTRODUCTION
 ------------
 
-nrad6 provides router advertisement and DHCPv6 information services that
-are required for stateless autoconfiguration to properly function for
-hosts.  It is intended to be run on a router; IPv6 assumes that the
-default gateway for a network will provide router advertisements, and
-many hosts will need stateless DHCP6 information replies in order to
-determine the DNS and NTP services for a network.
+ndhs is a DHCPv4 and DHCPv6 server that also provides IPv6 router
+advertisements.  It is intended to be run on a router; IPv6 assumes that the
+default gateway for a network will provide router advertisements, and many
+hosts will need stateless DHCP6 information replies in order to determine the
+DNS and NTP services for a network.
 
-nrad6 has been designed to be secure and function with minimal privilege.
+ndhs has been designed to be secure and function with minimal privilege.
 
 REMARKS ON IPv4 AND IPv6 DIFFERENCES
 ------------------------------------
@@ -33,7 +43,8 @@ local network segments.  Hosts make queries to this server and are
 provided with IP addresses by the server, which records the mappings
 (state) between hosts (identified by MAC or IAID/DUIDs) and IP addresses.
 
-DHCPv6 can support this model, but it is not the preferred model for IPv6.
+DHCPv6 can support this model, but it also allows for stateless
+autoconfiguration, where address assignment is not explicitly tracked.
 
 IPv6 stateless address allocation eliminates the need for a centralized
 server to keep track of mappings between hosts and IP addresses.  Instead,
@@ -43,57 +54,58 @@ information to calculate a probabalistically unique IP address, which
 is then verified for uniqueness by interrogating the network (using
 IPv6 Neighbor Discovery/Duplicate Address Detection).
 
-DHCPv6 can be used in the stateless model to provide network details
-such as the IP addresses of recursive DNS or NTP servers.  DHCPv6 is
-not strictly required for stateless autoconfiguration to function, but
-many hosts require it to be available in order for them to discover
-DNS or NTP addresses.  Router advertisments can carry this information,
-but the options were defined in 2010 and many hosts do not yet
-understand these options.
+This is fine for situations where it does not matter what addresses
+are assigned to clients; these addresses may even intentionally
+change over time (see Privacy Extensions and Temporary Addresses).
+However, if it is necessary for mappings to remain constant, or
+to vary but be coordinated with DNS entries, stateful address
+assignment is necessary.
 
-nrad6 is designed to support the stateless autoconfiguration model.
-It provides all functionality required stateless autoconfiguration to
-fully function for hosts.  It should be run only on IPv6 routers,
+Stateful assignment still requires router advertisements to be
+provided.  Many types of necessary information (notably the default gateway)
+are provided via router advertisements and not by DHCPv6.
+
+ndhs is designed to support the stateful autoconfiguration model.
+It provides all functionality required for stateful autoconfiguration to
+fully function for hosts.  It should be run only on IPv4/IPv6 routers,
 and only on interfaces on the router for which the router performs
 routing duties.
 
 STANDARD USAGE
 --------------
 
-1) Compile and install nrad6.
+1) Compile and install ndhs.
     a) mkdir build
     b) cd build
     c) cmake ..
     d) make
-    e) Install the nrad6 executable in a normal place.
+    e) Install the ndhs executable in a normal place.
     f) Set up a user and chroot path (optional, but recommended).
+    g) Set up a configure file.  For now, look at cfg.rl to
+       see the syntax.
+    h) Make sure that ndhs can write to its state directory for
+       dynamic leases.  If you are using chroot, this by default
+       will be /state directory beneath the chroot.
+       If you are not using a chroot, then it will default to
+       /var/lib/ndhs/state.
 
-2) Run nrad6.  Use nrad6 --help to see all possible options.
+2) Run ndhs.  Use ndhs --help to see all possible options.
 
     Examples:
 
-        nrad6 --interface=eth0 --interface=eth1 --user=nrad6 \
-              --dns-server=ffff::1 --dns-server=fffe::1 \
-              --dns-search=example.net --chroot /var/empty
-
-HOST COMPATIBILITY
-------------------
-
-Windows needs DHCPv6 in order to autoconfigure DNS and NTP server
-addresses.  OS X instead uses the RDNS or NTP options in router
-advertisement ICMPs.  nrad6 provides both by default.
+        ndhs --user=ndhs --chroot /var/lib/ndhs
 
 PORTABILITY
 -----------
 
-nrad6 could be ported to non-Linux systems, but will require new code
+ndhs could be ported to non-Linux systems, but will require new code
 to replace the netlink mechanism used in Linux.  Some security hardening
 features (seccomp-bpf syscall filtering, SO_LOCK_FILTER) would need to
 be disabled, too.
 
 LICENSE
 -------
- (c) 2014 Nicholas J. Kain <njkain at gmail dot com>
+ (c) 2014-2016 Nicholas J. Kain <njkain at gmail dot com>
  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
