@@ -29,19 +29,18 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <pwd.h>
-#include <net/if.h>
-#include <sys/socket.h>
-#include <ifaddrs.h>
 #include <nk/format.hpp>
 #include <nk/xorshift.hpp>
 #include "dhcp4.hpp"
 #include "dhcp_state.hpp"
+#include "nlsocket.hpp"
 #include "dynlease.hpp"
 extern "C" {
 #include "options.h"
 }
 
 namespace ba = boost::asio;
+extern std::unique_ptr<NLSocket> nl_socket;
 extern nk::rng::xorshift64m g_random_prng;
 
 static std::unique_ptr<ClientStates> client_states_v4;
@@ -72,30 +71,14 @@ D4Listener::D4Listener(ba::io_service &io_service, const std::string &ifname)
         exit(EXIT_FAILURE);
     }
 
-    struct ifaddrs *ifaddr, *ifa;
-    if (getifaddrs(&ifaddr) == -1) {
-        fmt::print(stderr, "failed to get list of interface ips: {}\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr)
-            continue;
-        if (strcmp(ifa->ifa_name, ifname.c_str()))
-            continue;
-        if (ifa->ifa_addr->sa_family != AF_INET)
-            continue;
-        char lipbuf[INET_ADDRSTRLEN];
-        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
-                       lipbuf, sizeof lipbuf)) {
-            fmt::print(stderr, "failed to parse IP for interface ({}): {}\n",
-                       ifname, strerror(errno));
-            exit(EXIT_FAILURE);
+    int ifidx = nl_socket->get_ifindex(ifname_);
+    const auto &ifinfo = nl_socket->interfaces.at(ifidx);
+    for (const auto &i: ifinfo.addrs) {
+        if (i.address.is_v4()) {
+            local_ip_ = i.address.to_v4();
+            fmt::print(stderr, "IP address for {} is {}.\n", ifname, local_ip_);
         }
-        local_ip_ = ba::ip::address::from_string(lipbuf);
-        fmt::print(stderr, "IP address for {} is {}.\n", ifname, local_ip_.to_string());
-        break;
     }
-    freeifaddrs(ifaddr);
     if (!local_ip_.is_v4()) {
         fmt::print(stderr, "interface ({}) has no IP address\n", ifname);
         exit(EXIT_FAILURE);

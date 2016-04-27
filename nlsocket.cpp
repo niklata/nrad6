@@ -69,7 +69,7 @@ void NLSocket::request_addrs()
 {
     int fd = socket_.native();
     auto addr_seq = nlseq_++;
-    if (nl_sendgetaddrs6(fd, addr_seq) < 0) {
+    if (nl_sendgetaddrs(fd, addr_seq) < 0) {
         fmt::print(stderr, "nlsocket: failed to get initial rtaddr state\n");
         std::exit(EXIT_FAILURE);
     }
@@ -83,10 +83,23 @@ void NLSocket::request_addrs(int ifidx)
 {
     int fd = socket_.native();
     auto addr_seq = nlseq_++;
-    if (nl_sendgetaddr6(fd, addr_seq, ifidx) < 0) {
+    if (nl_sendgetaddr(fd, addr_seq, ifidx) < 0) {
         fmt::print(stderr, "nlsocket: failed to get initial rtaddr state\n");
         std::exit(EXIT_FAILURE);
     }
+}
+
+static void parse_raw_address6(boost::asio::ip::address &addr, struct rtattr *tb[], size_t type, int index)
+{
+    boost::asio::ip::address_v6::bytes_type bytes;
+    memcpy(&bytes, RTA_DATA(tb[type]), sizeof bytes);
+    addr = boost::asio::ip::address_v6(bytes, index);
+}
+static void parse_raw_address4(boost::asio::ip::address &addr, struct rtattr *tb[], size_t type)
+{
+    boost::asio::ip::address_v4::bytes_type bytes;
+    memcpy(&bytes, RTA_DATA(tb[type]), sizeof bytes);
+    addr = boost::asio::ip::address_v4(bytes);
 }
 
 void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
@@ -98,7 +111,7 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
 
     netif_addr nia;
     nia.addr_type = ifa->ifa_family;
-    if (nia.addr_type != AF_INET6)
+    if (nia.addr_type != AF_INET6 && nia.addr_type != AF_INET)
         return;
     nia.prefixlen = ifa->ifa_prefixlen;
     nia.flags = ifa->ifa_flags;
@@ -112,28 +125,32 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
     default: fmt::print(stderr, "nlsocket: Unknown scope: {}\n", ifa->ifa_scope); return;
     }
     if (tb[IFA_ADDRESS]) {
-        boost::asio::ip::address_v6::bytes_type bytes;
-        memcpy(&bytes, RTA_DATA(tb[IFA_ADDRESS]), sizeof bytes);
-        nia.address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
+        if (nia.addr_type == AF_INET6)
+            parse_raw_address6(nia.address, tb, IFA_ADDRESS, ifa->ifa_index);
+        else
+            parse_raw_address4(nia.address, tb, IFA_ADDRESS);
     }
     if (tb[IFA_LOCAL]) {
-        boost::asio::ip::address_v6::bytes_type bytes;
-        memcpy(&bytes, RTA_DATA(tb[IFA_LOCAL]), sizeof bytes);
-        nia.peer_address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
+        if (nia.addr_type == AF_INET6)
+            parse_raw_address6(nia.peer_address, tb, IFA_LOCAL, ifa->ifa_index);
+        else
+            parse_raw_address4(nia.peer_address, tb, IFA_LOCAL);
     }
     if (tb[IFA_LABEL]) {
         auto v = reinterpret_cast<const char *>(RTA_DATA(tb[IFA_LABEL]));
         nia.if_name = std::string(v, strlen(v));
     }
     if (tb[IFA_BROADCAST]) {
-        boost::asio::ip::address_v6::bytes_type bytes;
-        memcpy(&bytes, RTA_DATA(tb[IFA_BROADCAST]), sizeof bytes);
-        nia.broadcast_address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
+        if (nia.addr_type == AF_INET6)
+            parse_raw_address6(nia.broadcast_address, tb, IFA_BROADCAST, ifa->ifa_index);
+        else
+            parse_raw_address4(nia.broadcast_address, tb, IFA_BROADCAST);
     }
     if (tb[IFA_ANYCAST]) {
-        boost::asio::ip::address_v6::bytes_type bytes;
-        memcpy(&bytes, RTA_DATA(tb[IFA_ANYCAST]), sizeof bytes);
-        nia.anycast_address = boost::asio::ip::address_v6(bytes, ifa->ifa_index);
+        if (nia.addr_type == AF_INET6)
+            parse_raw_address6(nia.anycast_address, tb, IFA_ANYCAST, ifa->ifa_index);
+        else
+            parse_raw_address4(nia.anycast_address, tb, IFA_ANYCAST);
     }
 
     switch (nlh->nlmsg_type) {
@@ -144,24 +161,24 @@ void NLSocket::process_rt_addr_msgs(const struct nlmsghdr *nlh)
                        nia.if_name.c_str());
             return;
         }
-        const auto iend = ifelt->second.addrs_v6.end();
-        for (auto i = ifelt->second.addrs_v6.begin(); i != iend; ++i) {
+        const auto iend = ifelt->second.addrs.end();
+        for (auto i = ifelt->second.addrs.begin(); i != iend; ++i) {
             if (i->address == nia.address) {
                 *i = std::move(nia);
                 return;
             }
         }
-        ifelt->second.addrs_v6.emplace_back(std::move(nia));
+        ifelt->second.addrs.emplace_back(std::move(nia));
         return;
     }
     case RTM_DELADDR: {
         auto ifelt = interfaces.find(nia.if_index);
         if (ifelt == interfaces.end())
             return;
-        const auto iend = ifelt->second.addrs_v6.end();
-        for (auto i = ifelt->second.addrs_v6.begin(); i != iend; ++i) {
+        const auto iend = ifelt->second.addrs.end();
+        for (auto i = ifelt->second.addrs.begin(); i != iend; ++i) {
             if (i->address == nia.address) {
-                ifelt->second.addrs_v6.erase(i);
+                ifelt->second.addrs.erase(i);
                 break;
             }
         }
@@ -216,7 +233,7 @@ void NLSocket::process_rt_link_msgs(const struct nlmsghdr *nlh)
         auto elt = interfaces.find(nii.index);
         // Preserve the addresses if we're just modifying fields.
         if (elt != interfaces.end())
-            std::swap(nii.addrs_v6, elt->second.addrs_v6);
+            std::swap(nii.addrs, elt->second.addrs);
         fmt::print(stderr, "nlsocket: Adding link info: {}\n", nii.name);
         interfaces.emplace(std::make_pair(nii.index, nii));
         if (initialized_)

@@ -51,10 +51,10 @@ struct netif_addr
 
     std::string if_name;
     int if_index;
-    boost::asio::ip::address_v6 address;
-    boost::asio::ip::address_v6 peer_address;
-    boost::asio::ip::address_v6 broadcast_address;
-    boost::asio::ip::address_v6 anycast_address;
+    boost::asio::ip::address address;
+    boost::asio::ip::address peer_address;
+    boost::asio::ip::address broadcast_address;
+    boost::asio::ip::address anycast_address;
     unsigned char addr_type;
     unsigned char prefixlen;
     unsigned char flags;
@@ -76,7 +76,7 @@ struct netif_info
     char macbc[6];
     bool is_active:1;
 
-    std::vector<netif_addr> addrs_v6;
+    std::vector<netif_addr> addrs;
 };
 
 class NLSocket

@@ -498,10 +498,10 @@ void RA6Listener::send_advert()
         (csum, net_checksum161c(&ra6_mtu, sizeof ra6_mtu));
 
     // Prefix Information
-    for (const auto &i: ifinfo.addrs_v6) {
-        if (i.scope == netif_addr::Scope::Global) {
+    for (const auto &i: ifinfo.addrs) {
+        if (i.scope == netif_addr::Scope::Global && i.address.is_v6()) {
             ra6_prefix_info_opt ra6_pfxi;
-            ra6_pfxi.prefix(i.address, i.prefixlen);
+            ra6_pfxi.prefix(i.address.to_v6(), i.prefixlen);
             ra6_pfxi.on_link(true);
             ra6_pfxi.auto_addr_cfg(false);
             ra6_pfxi.router_addr_flag(true);
