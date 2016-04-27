@@ -279,7 +279,7 @@ bool D4Listener::create_reply(dhcpmsg &reply, const uint8_t *hwaddr, bool do_ass
 
 void D4Listener::reply_discover()
 {
-    fmt::print("Got DHCP4 discover message\n;");
+    fmt::print("Got DHCP4 discover message\n");
     dhcpmsg reply;
     dhcpmsg_init(reply, DHCPOFFER, dhcpmsg_.xid);
     if (create_reply(reply, dhcpmsg_.chaddr, true))
@@ -288,7 +288,7 @@ void D4Listener::reply_discover()
 
 void D4Listener::reply_request(bool is_direct)
 {
-    fmt::print("Got DHCP4 request message\n;");
+    fmt::print("Got DHCP4 request message\n");
     dhcpmsg reply;
     dhcpmsg_init(reply, DHCPACK, dhcpmsg_.xid);
     if (create_reply(reply, dhcpmsg_.chaddr, true)) {
@@ -300,7 +300,7 @@ void D4Listener::reply_request(bool is_direct)
 static ba::ip::address_v4 zero_v4(0lu);
 void D4Listener::reply_inform()
 {
-    fmt::print("Got DHCP4 inform message\n;");
+    fmt::print("Got DHCP4 inform message\n");
     struct dhcpmsg reply;
     dhcpmsg_init(reply, DHCPACK, dhcpmsg_.xid);
     if (create_reply(reply, dhcpmsg_.chaddr, false)) {
