@@ -133,12 +133,12 @@ private:
     int swapInterval_;
 };
 
-class ClientListener
+class D4Listener
 {
 public:
-    ClientListener(boost::asio::io_service &io_service, const std::string &ifname);
-    ClientListener(const ClientListener &) = delete;
-    ClientListener &operator=(const ClientListener &) = delete;
+    D4Listener(boost::asio::io_service &io_service, const std::string &ifname);
+    D4Listener(const D4Listener &) = delete;
+    D4Listener &operator=(const D4Listener &) = delete;
 private:
     void start_receive();
     int64_t getNowTs(void) const;

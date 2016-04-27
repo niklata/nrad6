@@ -52,7 +52,7 @@ static void init_client_states_v4(ba::io_service &io_service)
     client_states_v4 = std::make_unique<ClientStates>(io_service);
 }
 
-ClientListener::ClientListener(ba::io_service &io_service, const std::string &ifname)
+D4Listener::D4Listener(ba::io_service &io_service, const std::string &ifname)
  : socket_(io_service), ifname_(ifname)
 {
     init_client_states_v4(io_service);
@@ -104,7 +104,7 @@ ClientListener::ClientListener(ba::io_service &io_service, const std::string &if
     start_receive();
 }
 
-void ClientListener::dhcpmsg_init(dhcpmsg &dm, char type, uint32_t xid) const
+void D4Listener::dhcpmsg_init(dhcpmsg &dm, char type, uint32_t xid) const
 {
     memset(&dm, 0, sizeof (struct dhcpmsg));
     dm.op = 2; // BOOTREPLY (server)
@@ -118,7 +118,7 @@ void ClientListener::dhcpmsg_init(dhcpmsg &dm, char type, uint32_t xid) const
     add_option_serverid(&dm, local_ip());
 }
 
-uint32_t ClientListener::local_ip() const
+uint32_t D4Listener::local_ip() const
 {
     uint32_t ret;
     if (inet_pton(AF_INET, local_ip_.to_string().c_str(), &ret) != 1) {
@@ -128,7 +128,7 @@ uint32_t ClientListener::local_ip() const
     return ret;
 }
 
-void ClientListener::send_reply_do(const dhcpmsg &dm, SendReplyType srt)
+void D4Listener::send_reply_do(const dhcpmsg &dm, SendReplyType srt)
 {
     ssize_t endloc = get_end_option_idx(&dm);
     if (endloc < 0)
@@ -164,7 +164,7 @@ void ClientListener::send_reply_do(const dhcpmsg &dm, SendReplyType srt)
     }
 }
 
-std::string ClientListener::ipStr(uint32_t ip) const
+std::string D4Listener::ipStr(uint32_t ip) const
 {
     char addrbuf[INET_ADDRSTRLEN];
     auto r = inet_ntop(AF_INET, &ip, addrbuf, sizeof addrbuf);
@@ -173,14 +173,14 @@ std::string ClientListener::ipStr(uint32_t ip) const
     return std::string(addrbuf);
 }
 
-int64_t ClientListener::getNowTs(void) const {
+int64_t D4Listener::getNowTs(void) const {
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts))
         throw std::runtime_error("clock_gettime failed");
     return ts.tv_sec;
 }
 
-void ClientListener::send_reply(const dhcpmsg &reply)
+void D4Listener::send_reply(const dhcpmsg &reply)
 {
     if (dhcpmsg_.giaddr)
         send_reply_do(reply, SendReplyType::Relay);
@@ -194,8 +194,8 @@ void ClientListener::send_reply(const dhcpmsg &reply)
         send_reply_do(reply, SendReplyType::Broadcast);
 }
 
-bool ClientListener::iplist_option(dhcpmsg &reply, std::string &iplist, uint8_t code,
-                                   const std::vector<boost::asio::ip::address_v4> &addrs)
+bool D4Listener::iplist_option(dhcpmsg &reply, std::string &iplist, uint8_t code,
+                               const std::vector<boost::asio::ip::address_v4> &addrs)
 {
         iplist.clear();
         iplist.reserve(addrs.size() * 4);
@@ -210,7 +210,7 @@ bool ClientListener::iplist_option(dhcpmsg &reply, std::string &iplist, uint8_t 
         return true;
 }
 
-bool ClientListener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign)
+bool D4Listener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign)
 {
     using baia4 = boost::asio::ip::address_v4;
     if (!query_use_dynamic_v4(ifname_))
@@ -264,7 +264,7 @@ bool ClientListener::allot_dynamic_ip(dhcpmsg &reply, const uint8_t *hwaddr, boo
     return false;
 }
 
-bool ClientListener::create_reply(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign)
+bool D4Listener::create_reply(dhcpmsg &reply, const uint8_t *hwaddr, bool do_assign)
 {
     auto dv4s = query_dhcp_state(ifname_, hwaddr);
     if (!dv4s) {
@@ -294,7 +294,7 @@ bool ClientListener::create_reply(dhcpmsg &reply, const uint8_t *hwaddr, bool do
     return true;
 }
 
-void ClientListener::reply_discover()
+void D4Listener::reply_discover()
 {
     fmt::print("Got DHCP4 discover message\n;");
     dhcpmsg reply;
@@ -303,7 +303,7 @@ void ClientListener::reply_discover()
         send_reply(reply);
 }
 
-void ClientListener::reply_request(bool is_direct)
+void D4Listener::reply_request(bool is_direct)
 {
     fmt::print("Got DHCP4 request message\n;");
     dhcpmsg reply;
@@ -315,7 +315,7 @@ void ClientListener::reply_request(bool is_direct)
 }
 
 static ba::ip::address_v4 zero_v4(0lu);
-void ClientListener::reply_inform()
+void D4Listener::reply_inform()
 {
     fmt::print("Got DHCP4 inform message\n;");
     struct dhcpmsg reply;
@@ -345,7 +345,7 @@ void ClientListener::reply_inform()
     }
 }
 
-void ClientListener::do_release() {
+void D4Listener::do_release() {
     auto valid = dynlease_exists(ifname_, remote_endpoint_.address().to_v4(), dhcpmsg_.chaddr);
     if (!valid) {
         fmt::print("do_release: ignoring spoofed release request for {}.\n",
@@ -356,14 +356,14 @@ void ClientListener::do_release() {
     dynlease_del(ifname_, remote_endpoint_.address().to_v4(), dhcpmsg_.chaddr);
 }
 
-std::string ClientListener::getChaddr(const struct dhcpmsg &dm) const
+std::string D4Listener::getChaddr(const struct dhcpmsg &dm) const
 {
     char mac[7];
     memcpy(mac, dm.chaddr, sizeof mac - 1);
     return std::string(mac, 6);
 }
 
-uint8_t ClientListener::validate_dhcp(size_t len) const
+uint8_t D4Listener::validate_dhcp(size_t len) const
 {
     if (len < offsetof(struct dhcpmsg, options))
         return DHCPNULL;
@@ -372,7 +372,7 @@ uint8_t ClientListener::validate_dhcp(size_t len) const
     return get_option_msgtype(&dhcpmsg_);
 }
 
-void ClientListener::start_receive()
+void D4Listener::start_receive()
 {
     socket_.async_receive_from
         (ba::buffer(recv_buffer_), remote_endpoint_,

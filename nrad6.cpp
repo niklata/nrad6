@@ -73,7 +73,7 @@ static bool use_seccomp(false);
 std::unique_ptr<NLSocket> nl_socket;
 
 static std::vector<std::unique_ptr<D6Listener>> v6_listeners;
-static std::vector<std::unique_ptr<ClientListener>> v4_listeners;
+static std::vector<std::unique_ptr<D4Listener>> v4_listeners;
 
 static std::random_device g_random_secure;
 nk::rng::xorshift64m g_random_prng(0);
@@ -104,7 +104,7 @@ static void init_listeners()
         }
         if (use_v4) {
             try {
-                v4l->emplace_back(std::make_unique<ClientListener>(*ios, i));
+                v4l->emplace_back(std::make_unique<D4Listener>(*ios, i));
             } catch (const boost::system::error_code &) {
                 fmt::print(stderr, "Can't bind to v4 interface: {}\n", i);
             }
